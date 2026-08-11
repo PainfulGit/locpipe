@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:binding",
+  "$defs": {
+    "adapter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id", "version", "digest", "capabilities"],
+      "properties": {
+        "adapter_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+        "digest": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"}}
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "module_id", "version", "digest"],
+      "properties": {
+        "capability": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"},
+        "module_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+        "digest": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:binding"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "binding_set"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter", "modules"],
+      "properties": {
+        "adapter": {"$ref": "urn:locpipe:contracts:v0:binding#/$defs/adapter"},
+        "modules": {"type": "array", "items": {"$ref": "urn:locpipe:contracts:v0:binding#/$defs/module"}}
+      }
+    }
+  }
+}

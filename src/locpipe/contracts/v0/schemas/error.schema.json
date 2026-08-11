@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:error",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:error"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "error"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "category", "artifact", "safe_to_resume", "next_commands", "detail"],
+      "properties": {
+        "code": {
+          "enum": [
+            "CANONICALIZATION_ERROR",
+            "BINDING_MISMATCH",
+            "CAPABILITY_FORBIDDEN",
+            "CAPABILITY_MISSING",
+            "CAPABILITY_UNKNOWN",
+            "DANGLING_RELATION",
+            "DUPLICATE_IDENTITY",
+            "HANDLER_EXCEPTION",
+            "HASH_MISMATCH",
+            "MALFORMED_ARTIFACT",
+            "OUTPUT_CONTRACT_VIOLATION",
+            "PATH_ESCAPE",
+            "PROTECTED_PATH_DRIFT",
+            "SCHEMA_UNKNOWN",
+            "SCHEMA_VERSION_UNSUPPORTED"
+          ]
+        },
+        "category": {"enum": ["CONTRACT", "INTEGRITY", "CONFIGURATION", "AUTHORIZATION", "ENVIRONMENT", "CONTENT", "INTERNAL"]},
+        "artifact": {"type": ["string", "null"]},
+        "safe_to_resume": {"type": "boolean"},
+        "next_commands": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "detail": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:workflow-profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:workflow-profile"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "workflow_profile"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "available_capabilities", "disabled_optional", "terminal_state"],
+      "properties": {
+        "profile": {"enum": ["content-only", "artifact-build", "installed-patch"]},
+        "available_capabilities": {"type": "array", "uniqueItems": true, "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"}},
+        "disabled_optional": {"type": "array", "uniqueItems": true, "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"}},
+        "terminal_state": {"enum": ["CONTENT_VERIFIED", "ARTIFACT_VERIFIED", "INSTALLED_VERIFIED"]}
+      }
+    }
+  }
+}

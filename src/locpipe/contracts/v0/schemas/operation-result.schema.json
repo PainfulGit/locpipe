@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:operation-result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:operation-result"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "operation_result"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "capability", "request_sha256", "binding_sha256", "implementation", "status", "outputs", "error"],
+      "properties": {
+        "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "capability": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"},
+        "request_sha256": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "binding_sha256": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "implementation": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/implementation_ref"},
+        "status": {"enum": ["PASS", "FAIL"]},
+        "outputs": {"type": "array", "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/artifact_hash"}},
+        "error": {
+          "oneOf": [
+            {"type": "null"},
+            {"$ref": "urn:locpipe:contracts:v0:error#/properties/data"}
+          ]
+        }
+      }
+    }
+  }
+}

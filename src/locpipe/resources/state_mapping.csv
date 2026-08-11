@@ -1,0 +1,13 @@
+current_owner,current_state,v0_owner,v0_state,resume_policy
+release,TECH_VERIFIED,installed_patch_profile,INSTALLED_VERIFIED,"Map only with valid install and tech-verify receipts"
+release,USER_VERIFIED,acceptance_module,USER_ACCEPTED,"Separate human acceptance from lifecycle terminal state"
+release,REWORK_REQUIRED,review_module,REWORK_REQUIRED,"Resume only with bound request and round budget"
+release,WAITING_USER_DECISION,kernel,PAUSED_DECISION,"Resume only with matching immutable decision receipt"
+release,PAUSED_SCOPE_DEFECT,kernel,PAUSED_SCOPE_DEFECT,"Read-only shadow maps evidence exactly; mutable resume remains blocked until a dedicated migration test exists"
+release,PAUSED_CONFIG,kernel,PAUSED_CONFIG,"Legacy read-only state; mutable resume requires an explicit compatibility tuple and receipt migration"
+release,PAUSED_CONFIG_CONTRACT,kernel,PAUSED_CONFIG_CONTRACT,"Read-only v13 attempt state; mutable resume is not claimed by CT-001"
+release,INTERRUPTED_ENVIRONMENT,kernel,INTERRUPTED_ENVIRONMENT,"Probe external state read-only and require operator decision before any write"
+release,ABORTED_BY_USER,kernel,ABORTED_BY_USER,"Terminal no automatic resume"
+issues,INSTALLED_AWAITING_USER,issue_module,INSTALLED_AWAITING_USER,"Preserve issue evidence independently"
+issues,USER_VERIFIED,issue_module,USER_VERIFIED,"Preserve historical issue status"
+terminology,frozen-release-block,terminology_module,REGISTRY_WRITE_DEFERRED,"No registry mutation while candidate frozen"

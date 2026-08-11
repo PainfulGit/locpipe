@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:receipt"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "receipt"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "inputs", "outputs", "contract_sha256", "status"],
+      "properties": {
+        "operation": {"type": "string", "minLength": 1},
+        "inputs": {"type": "array", "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/artifact_hash"}},
+        "outputs": {"type": "array", "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/artifact_hash"}},
+        "contract_sha256": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "status": {"enum": ["PASS", "FAIL", "SKIPPED_WITH_RECEIPT"]}
+      }
+    }
+  }
+}

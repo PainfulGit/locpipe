@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:source-snapshot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:source-snapshot"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "source_snapshot"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["snapshot_id", "source_locale", "source_version", "source_raw_sha256", "adapter", "branch_ids"],
+      "properties": {
+        "snapshot_id": {"type": "string", "minLength": 1},
+        "source_locale": {"type": "string", "minLength": 1},
+        "source_version": {"type": "string", "minLength": 1},
+        "source_raw_sha256": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "adapter": {"$ref": "urn:locpipe:contracts:v0:binding#/$defs/adapter"},
+        "branch_ids": {"type": "array", "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

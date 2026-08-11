@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:segment",
+  "$defs": {
+    "source_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "content_type", "payload", "constraints", "source_revision_sha", "locator"],
+      "properties": {
+        "identity": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/branch_identity"},
+        "content_type": {"type": "string", "minLength": 1},
+        "payload": {},
+        "constraints": {"type": "object"},
+        "source_revision_sha": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "locator": {"type": "object"}
+      }
+    },
+    "target_data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["identity", "source_logical_id", "content_type", "payload", "metadata_ref"],
+      "properties": {
+        "identity": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/branch_identity"},
+        "source_logical_id": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/logical_id"},
+        "content_type": {"type": "string", "minLength": 1},
+        "payload": {},
+        "metadata_ref": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:segment"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"enum": ["source_branch", "target_branch"]},
+    "data": {"type": "object"}
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {"const": "source_branch"},
+        "data": {"$ref": "urn:locpipe:contracts:v0:segment#/$defs/source_data"}
+      }
+    },
+    {
+      "properties": {
+        "kind": {"const": "target_branch"},
+        "data": {"$ref": "urn:locpipe:contracts:v0:segment#/$defs/target_data"}
+      }
+    }
+  ]
+}

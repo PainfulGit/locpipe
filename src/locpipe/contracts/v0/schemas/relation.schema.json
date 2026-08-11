@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:relation",
+  "$defs": {
+    "reference": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "locale"],
+          "properties": {"kind": {"const": "locale"}, "locale": {"type": "string", "minLength": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "identity"],
+          "properties": {"kind": {"const": "branch"}, "identity": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/branch_identity"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "logical_id"],
+          "properties": {"kind": {"const": "logical_message"}, "logical_id": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/logical_id"}}
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:relation"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "relation"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relation_type", "from_ref", "to_ref"],
+      "properties": {
+        "relation_type": {"type": "string", "minLength": 1},
+        "from_ref": {"$ref": "urn:locpipe:contracts:v0:relation#/$defs/reference"},
+        "to_ref": {"$ref": "urn:locpipe:contracts:v0:relation#/$defs/reference"}
+      }
+    }
+  }
+}

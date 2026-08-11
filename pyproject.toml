@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "locpipe"
+version = "0.1.0b1"
+description = "Deterministic adapter-driven localization pipeline for games and structured content"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = {file = "LICENSE"}
+authors = [{name = "PainfulGit"}]
+dependencies = ["rfc8785==0.1.4"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.scripts]
+locpipe-demo = "locpipe.demo:main"
+
+[project.urls]
+Repository = "https://github.com/PainfulGit/locpipe"
+Issues = "https://github.com/PainfulGit/locpipe/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/locpipe"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "examples", "docs", "tools", "AGENTS.md", "README.md", "LICENSE", "NOTICE", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md", "pyproject.toml", "requirements*.lock", "PUBLIC_EXPORT_MANIFEST.json"]
+
+[tool.hatch.build]
+artifacts = ["src/locpipe/contracts/v0/schemas/*.json", "src/locpipe/contracts/v0/fixtures/*.jsonl", "src/locpipe/resources/*.csv"]

@@ -1,0 +1,23 @@
+key,allowed_layers,frozen_after,redaction,digest_domains,notes
+workspace_id,workspace,WORKSPACE_INIT,public,content|build|runtime,Opaque schema-validated workspace identity not a filesystem path
+project_id,project,PROJECT_INIT,public,content|build|runtime,Immutable project identity within workspace
+release_id,release,RELEASE_INIT,public,content|build|runtime,Immutable release identity within project
+workflow_profile,project|release,RELEASE_INIT,public,content|build|runtime,Exact immutable lifecycle profile selected before artifact graph construction
+source_locale,project,SOURCE_SNAPSHOT,public,content,One source locale per source snapshot
+target_locales,project|release,SCOPE_FREEZE,public,content,Sorted explicit locale list
+adapter_id,project|release,SOURCE_SNAPSHOT,public,content|build|runtime,Project value is default and source snapshot freezes exact effective pin
+adapter_version,project|release,SOURCE_SNAPSHOT,public,content|build|runtime,Exact effective version not a floating range
+adapter_digest,project|release,SOURCE_SNAPSHOT,public,content|build|runtime,Exact effective package or source-tree digest
+adapter_reconciliation_receipt,release,SCOPE_FREEZE,public,content,Required when effective adapter pin differs from prior source snapshot
+source_snapshot,release,SCOPE_FREEZE,public,content,Receipt-bound immutable input
+language_policy,project|release,SCOPE_FREEZE,public,content,Release may select a pinned policy version
+project_policy,project|release,SCOPE_FREEZE,public,content,Severity waivers and domain rules
+module_bindings,project|release,RELEASE_INIT,public,content|build|runtime,"Sorted capability module bindings with exact ID version and digest"
+provider_bindings,project|release|local,SCOPE_FREEZE,public,content|runtime,"Sorted role-to-provider bindings with exact provider ID version config digest and request protocol"
+build_profile,project|release,BUILD_START,public,build,Build parameters only and cannot change workflow profile or artifact graph
+build_output,release|local,BUILD_START,local_path,build,Resolved path contained in declared workspace
+runtime_executable,local,HOOK_START,local_path,runtime,Executable identity digest is recorded
+runtime_dependency_lock,project|local,HOOK_START,public,runtime,Exact dependency lock digest
+install_target,local|cli,INSTALL_AUTHORIZE,local_path,runtime,Never part of content cache
+allow_install,cli,INSTALL_AUTHORIZE,public,runtime,Authorization receipt not persisted as default
+secret_ref,local|environment,HOOK_START,secret,runtime,Hash identifier/version only never plaintext value

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:operation-request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "schema_version", "kind", "data"],
+  "properties": {
+    "schema_id": {"const": "urn:locpipe:contracts:v0:operation-request"},
+    "schema_version": {"const": "0.1.0-draft.2"},
+    "kind": {"const": "operation_request"},
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation_id", "capability", "binding_sha256", "inputs", "declared_outputs"],
+      "properties": {
+        "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "capability": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"},
+        "binding_sha256": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "inputs": {"type": "array", "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/artifact_hash"}},
+        "declared_outputs": {"type": "array", "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/artifact_declaration"}}
+      }
+    }
+  }
+}

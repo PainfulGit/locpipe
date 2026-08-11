@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:locpipe:contracts:v0:common",
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "capability": {
+      "enum": [
+        "artifact_build",
+        "content_validation",
+        "delivery",
+        "editorial_review",
+        "extract_import",
+        "issues",
+        "source_reconciliation",
+        "source_snapshot",
+        "terminology",
+        "translation"
+      ]
+    },
+    "logical_id": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "selector_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "value"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "type": {"enum": ["select", "plural"]},
+        "value": {"type": "string", "minLength": 1}
+      }
+    },
+    "branch_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logical_id", "locale", "selector_path"],
+      "properties": {
+        "logical_id": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/logical_id"},
+        "locale": {"type": "string", "minLength": 1},
+        "selector_path": {
+          "type": "array",
+          "items": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/selector_step"}
+        }
+      }
+    },
+    "artifact_hash": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "hash_domain", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "hash_domain": {"enum": ["raw", "semantic", "directory_manifest"]},
+        "sha256": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"}
+      }
+    },
+    "artifact_declaration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "hash_domain"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "hash_domain": {"enum": ["raw", "semantic", "directory_manifest"]}
+      }
+    },
+    "implementation_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner_kind", "implementation_id", "version", "digest", "capability"],
+      "properties": {
+        "owner_kind": {"enum": ["adapter", "module"]},
+        "implementation_id": {"type": "string", "minLength": 1},
+        "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"},
+        "digest": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/sha256"},
+        "capability": {"$ref": "urn:locpipe:contracts:v0:common#/$defs/capability"}
+      }
+    }
+  }
+}
