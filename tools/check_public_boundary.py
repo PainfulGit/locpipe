@@ -80,7 +80,7 @@ def _validate_manifest(paths: tuple[str, ...]) -> None:
     if actual != expected:
         raise SystemExit("public export manifest path set drift")
     for row in rows:
-        payload = (ROOT / row["path"]).read_bytes()
+        payload = subprocess.check_output(("git", "show", f"HEAD:{row['path']}"), cwd=ROOT)
         if row.get("size") != len(payload) or row.get("sha256") != hashlib.sha256(payload).hexdigest():
             raise SystemExit(f"public export manifest hash drift: {row['path']}")
 
