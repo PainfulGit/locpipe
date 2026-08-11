@@ -1,3 +1,2 @@
-# Experimental Contracts v0 dependency. Keep separate from release-requirements.lock.
+# Frozen Contracts v0 runtime dependency.
 rfc8785==0.1.4 --hash=sha256:520d690b448ecf0703691c76e1a34a24ddcd4fc5bc41d589cb7c58ec651bcd48
-
