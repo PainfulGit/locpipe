@@ -21,7 +21,10 @@ def main() -> int:
         raise SystemExit("usage: write_canonical_matrix.py <output>")
     rows = []
     for relative in INCLUDED:
-        for path in sorted((ROOT / relative).rglob("*")):
+        for path in sorted(
+            (ROOT / relative).rglob("*"),
+            key=lambda value: value.relative_to(ROOT).as_posix().encode("utf-8"),
+        ):
             if path.is_file():
                 rows.append({"path": path.relative_to(ROOT).as_posix(), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
     payload = {
