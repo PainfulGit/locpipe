@@ -77,7 +77,14 @@ def resolve_existing_artifact(root: Path, relative_path: str) -> Path:
     candidate = root / Path(*safe_path.split("/"))
     try:
         resolved = candidate.resolve(strict=True)
-        resolved.relative_to(root)
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            physical_root = resolved
+            for _ in safe_path.split("/"):
+                physical_root = physical_root.parent
+            if not os.path.samefile(physical_root, root):
+                raise
     except (OSError, ValueError) as error:
         raise ContractViolation(
             ErrorCode.PATH_ESCAPE,
