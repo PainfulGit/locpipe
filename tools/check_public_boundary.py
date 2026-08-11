@@ -34,8 +34,8 @@ def _scan_payload(path: str, payload: bytes) -> None:
         return
     if any(pattern.search(payload) for pattern in (WINDOWS_ABSOLUTE, UNC_ABSOLUTE, WINDOWS_DEVICE_ABSOLUTE, POSIX_ABSOLUTE)):
         raise SystemExit(f"absolute path rejected: {path}")
-    folded = payload.casefold()
-    if any(token.casefold() in folded for token in DENY_TOKENS):
+    folded = payload.lower()
+    if any(token.lower() in folded for token in DENY_TOKENS):
         raise SystemExit(f"private token rejected: {path}")
 
 
