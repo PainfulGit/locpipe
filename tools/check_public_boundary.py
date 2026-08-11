@@ -22,6 +22,9 @@ DENY_TOKENS = (
     ("private" + "_fixtures").encode(),
     ("steamapps" + "/common").encode(),
 )
+ALLOWED_GIT_IDENTITIES = {
+    ("PainfulGit", "258659461+PainfulGit@users.noreply.github.com"),
+}
 
 
 def _is_text(path: str) -> bool:
@@ -42,6 +45,29 @@ def _scan_payload(path: str, payload: bytes) -> None:
 def _tracked_files() -> tuple[str, ...]:
     output = subprocess.check_output(("git", "ls-files", "-z"), cwd=ROOT)
     return tuple(sorted(row.decode("utf-8") for row in output.split(b"\0") if row))
+
+
+def _validate_commit_metadata(rows: tuple[tuple[str, str, str, str, str], ...]) -> None:
+    if not rows:
+        raise SystemExit("public history is empty")
+    for commit, author_name, author_email, committer_name, committer_email in rows:
+        if (author_name, author_email) not in ALLOWED_GIT_IDENTITIES:
+            raise SystemExit(f"unapproved author identity rejected: {commit}")
+        if (committer_name, committer_email) not in ALLOWED_GIT_IDENTITIES:
+            raise SystemExit(f"unapproved committer identity rejected: {commit}")
+
+
+def _scan_commit_metadata() -> int:
+    payload = subprocess.check_output(
+        ("git", "log", "--all", "-z", "--format=%H%x00%an%x00%ae%x00%cn%x00%ce"),
+        cwd=ROOT,
+    )
+    values = tuple(value.decode("utf-8") for value in payload.split(b"\0") if value)
+    if len(values) % 5:
+        raise SystemExit("public history metadata is malformed")
+    rows = tuple(tuple(values[index:index + 5]) for index in range(0, len(values), 5))
+    _validate_commit_metadata(rows)
+    return len(rows)
 
 
 def _validate_manifest(paths: tuple[str, ...]) -> None:
@@ -79,8 +105,11 @@ def main() -> int:
     for path in paths:
         _scan_payload(path, (ROOT / path).read_bytes())
     _validate_manifest(paths)
+    metadata_commits = _scan_commit_metadata()
     commits = _scan_history()
-    print(json.dumps({"status": "PASS", "tracked_files": len(paths), "history_commits": commits, "private_hits": 0, "absolute_paths": 0}, sort_keys=True))
+    if commits != metadata_commits:
+        raise SystemExit("history and metadata commit counts differ")
+    print(json.dumps({"status": "PASS", "tracked_files": len(paths), "history_commits": commits, "private_hits": 0, "absolute_paths": 0, "unapproved_git_identities": 0}, sort_keys=True))
     return 0
 
 
