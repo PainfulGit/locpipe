@@ -210,6 +210,40 @@ def parse_fluency_adjudication_v0(payload: bytes):
     return adjudication
 
 
+def parse_fluency_correction_terminal_v0(payload: bytes):
+    value = _canonical_mapping(payload, {
+        "contract", "status", "candidate_sha256", "candidate_authority_sha256",
+        "correction_chain_sha256", "round_index", "max_correction_rounds",
+        "unresolved_ids",
+    }, "Fluency correction terminal")
+    if value["contract"] != "locpipe.fluency.correction-terminal/v0":
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction terminal contract is invalid")
+    if not isinstance(value["unresolved_ids"], list):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction terminal unresolved IDs are invalid")
+    from ._models import (
+        FluencyCorrectionTerminalStatusV0,
+        FluencyCorrectionTerminalV0,
+    )
+
+    try:
+        terminal = FluencyCorrectionTerminalV0(
+            FluencyCorrectionTerminalStatusV0(value["status"]),
+            value["candidate_sha256"],
+            value["candidate_authority_sha256"],
+            value["correction_chain_sha256"],
+            value["round_index"],
+            value["max_correction_rounds"],
+            tuple(value["unresolved_ids"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        if isinstance(error, ContractViolation):
+            raise
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction terminal value is invalid") from error
+    if canonical_json_bytes(terminal.as_dict()) != payload:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency correction terminal projection drift")
+    return terminal
+
+
 def canonical_target_v0(payload: bytes, target_locale: str | None) -> tuple[str, Mapping[str, Any]]:
     if not isinstance(payload, bytes):
         raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency target must be canonical bytes")

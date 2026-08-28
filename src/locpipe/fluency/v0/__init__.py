@@ -6,6 +6,8 @@ from ._models import (
     FluencyAdjudicationV0,
     FluencyCorrectionTriggerEntryV0,
     FluencyCorrectionTriggerV0,
+    FluencyCorrectionTerminalStatusV0,
+    FluencyCorrectionTerminalV0,
     FluencyDecisionEntryV0,
     FluencyDecisionStatusV0,
     FluencyDecisionV0,
@@ -43,7 +45,12 @@ from ._packet import (
     build_fluency_review_job_v0,
     fluency_bindings_from_config_v0,
 )
-from ._serialization import parse_fluency_adjudication_v0, parse_fluency_correction_trigger_v0
+from ._serialization import (
+    parse_fluency_adjudication_v0,
+    parse_fluency_correction_terminal_v0,
+    parse_fluency_correction_trigger_v0,
+)
+from ._terminal import bind_fluency_correction_terminal_v0
 
 
 __all__ = [
@@ -54,6 +61,8 @@ __all__ = [
     "FluencyAdjudicationV0",
     "FluencyCorrectionTriggerEntryV0",
     "FluencyCorrectionTriggerV0",
+    "FluencyCorrectionTerminalStatusV0",
+    "FluencyCorrectionTerminalV0",
     "FluencyDecisionEntryV0",
     "FluencyDecisionStatusV0",
     "FluencyDecisionV0",
@@ -73,6 +82,7 @@ __all__ = [
     "accept_fluency_adjudication_v0",
     "accept_fluency_submission_v0",
     "bind_fluency_accuracy_acceptance_v0",
+    "bind_fluency_correction_terminal_v0",
     "bind_fluency_submission_receipt_v0",
     "build_fluency_editorial_correction_v0",
     "build_fluency_recheck_job_v0",
@@ -83,5 +93,6 @@ __all__ = [
     "fluency_bindings_from_config_v0",
     "fluency_correction_trigger_path_v0",
     "parse_fluency_correction_trigger_v0",
+    "parse_fluency_correction_terminal_v0",
     "parse_fluency_adjudication_v0",
 ]
