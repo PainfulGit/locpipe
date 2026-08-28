@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
+import unicodedata
 
 from locpipe.contracts.v0 import (
     Capability,
@@ -9,6 +11,7 @@ from locpipe.contracts.v0 import (
     ErrorCode,
     ModuleDescriptorV0,
     canonical_json_bytes,
+    normalized_text,
     parse_canonical_json,
     raw_sha256,
     semantic_sha256,
@@ -21,6 +24,7 @@ from ._serialization import canonical_guidance_block_v0, canonical_target_v0
 
 
 FLUENCY_ROLES = frozenset({"CONTEXT", "REVIEW"})
+MAX_DIAGNOSTIC_NOTE_CODEPOINTS = 1024
 
 
 def _nonempty(value: object, name: str) -> str:
@@ -345,6 +349,250 @@ class FluencyReviewJobV0:
             "job_id": self.job_id,
             "invocation_id": self.invocation_id,
             **self.identity_projection(),
+        }
+
+
+class FluencyFindingCategoryV0(str, Enum):
+    GRAMMAR = "GRAMMAR"
+    READABILITY = "READABILITY"
+    STYLE = "STYLE"
+    VOICE = "VOICE"
+    CONSISTENCY = "CONSISTENCY"
+    TERMINOLOGY = "TERMINOLOGY"
+    TYPOGRAPHY = "TYPOGRAPHY"
+    TARGET_LOCALE_CONVENTION = "TARGET_LOCALE_CONVENTION"
+
+
+class FluencyReviewOutcomeV0(str, Enum):
+    NO_FINDINGS = "NO_FINDINGS"
+    FINDINGS = "FINDINGS"
+
+
+class FluencyDecisionStatusV0(str, Enum):
+    FLUENCY_VERIFIED = "FLUENCY_VERIFIED"
+    CORRECTION_REQUIRED = "CORRECTION_REQUIRED"
+
+
+def _diagnostic_note(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > MAX_DIAGNOSTIC_NOTE_CODEPOINTS:
+        raise ContractViolation(
+            ErrorCode.MALFORMED_ARTIFACT,
+            f"Fluency diagnostic note must contain 1..{MAX_DIAGNOSTIC_NOTE_CODEPOINTS} Unicode code points",
+        )
+    if normalized_text(value) != value:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency diagnostic note must be NFC-normalized")
+    if value.strip() != value:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency diagnostic note has edge whitespace")
+    if len(value.splitlines()) != 1 or any(unicodedata.category(character) == "Cc" for character in value):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency diagnostic note must be one control-free line")
+    return value
+
+
+@dataclass(frozen=True)
+class FluencyFindingV0:
+    category: FluencyFindingCategoryV0
+    diagnostic_note: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.category, FluencyFindingCategoryV0):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency finding category is invalid")
+        _diagnostic_note(self.diagnostic_note)
+
+    @property
+    def identity(self) -> tuple[str, str]:
+        return self.category.value, self.diagnostic_note
+
+    def as_dict(self) -> dict[str, str]:
+        return {"category": self.category.value, "diagnostic_note": self.diagnostic_note}
+
+
+@dataclass(frozen=True)
+class FluencyDecisionEntryV0:
+    stable_id: str
+    outcome: FluencyReviewOutcomeV0
+    findings: tuple[FluencyFindingV0, ...] = ()
+
+    def __post_init__(self) -> None:
+        _nonempty(self.stable_id, "Fluency decision stable ID")
+        if not isinstance(self.outcome, FluencyReviewOutcomeV0):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency review outcome is invalid")
+        rows = tuple(self.findings)
+        if any(not isinstance(row, FluencyFindingV0) for row in rows):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency findings are invalid")
+        identities = tuple(row.identity for row in rows)
+        if identities != tuple(sorted(identities)) or len(identities) != len(set(identities)):
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency findings must be unique and sorted")
+        if (self.outcome is FluencyReviewOutcomeV0.NO_FINDINGS) != (not rows):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency outcome disagrees with findings")
+        object.__setattr__(self, "findings", rows)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "stable_id": self.stable_id,
+            "outcome": self.outcome.value,
+            "findings": [row.as_dict() for row in self.findings],
+        }
+
+
+@dataclass(frozen=True)
+class FluencySubmissionReceiptV0:
+    job_id: str
+    invocation_id: str
+    provider: ProviderBindingV0
+    provider_request_id: str
+    plan_sha256: str
+    packet_sha256: str
+    role_contract_sha256: str
+    output_contract_sha256: str
+    raw_output_sha256: str
+
+    def __post_init__(self) -> None:
+        _nonempty(self.job_id, "Fluency receipt job ID")
+        _nonempty(self.invocation_id, "Fluency receipt invocation ID")
+        if not isinstance(self.provider, ProviderBindingV0) or self.provider.role != "fluency_editor":
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency receipt provider is invalid")
+        _nonempty(self.provider_request_id, "Fluency provider request ID")
+        for value, name in (
+            (self.plan_sha256, "Fluency receipt plan SHA"),
+            (self.packet_sha256, "Fluency receipt packet SHA"),
+            (self.role_contract_sha256, "Fluency receipt role contract SHA"),
+            (self.output_contract_sha256, "Fluency receipt output contract SHA"),
+            (self.raw_output_sha256, "Fluency receipt raw output SHA"),
+        ):
+            _sha(value, name)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract": "locpipe.fluency.submission-receipt/v0",
+            "job_id": self.job_id,
+            "invocation_id": self.invocation_id,
+            "provider": self.provider.as_dict(),
+            "provider_request_id": self.provider_request_id,
+            "plan_sha256": self.plan_sha256,
+            "packet_sha256": self.packet_sha256,
+            "role_contract_sha256": self.role_contract_sha256,
+            "output_contract_sha256": self.output_contract_sha256,
+            "raw_output_sha256": self.raw_output_sha256,
+        }
+
+
+@dataclass(frozen=True)
+class FluencyDecisionV0:
+    job_id: str
+    invocation_id: str
+    plan_sha256: str
+    packet_sha256: str
+    candidate_sha256: str
+    content_config_digest: str
+    provider_config_digest: str
+    raw_output_sha256: str
+    submission_sha256: str
+    status: FluencyDecisionStatusV0
+    entries: tuple[FluencyDecisionEntryV0, ...]
+    correction_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        _nonempty(self.job_id, "Fluency decision job ID")
+        _nonempty(self.invocation_id, "Fluency decision invocation ID")
+        for value, name in (
+            (self.plan_sha256, "Fluency decision plan SHA"),
+            (self.packet_sha256, "Fluency decision packet SHA"),
+            (self.candidate_sha256, "Fluency decision candidate SHA"),
+            (self.content_config_digest, "Fluency decision content config digest"),
+            (self.provider_config_digest, "Fluency decision provider config digest"),
+            (self.raw_output_sha256, "Fluency decision raw output SHA"),
+            (self.submission_sha256, "Fluency decision submission SHA"),
+        ):
+            _sha(value, name)
+        if not isinstance(self.status, FluencyDecisionStatusV0):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency decision status is invalid")
+        entries = tuple(self.entries)
+        keys = tuple(row.stable_id for row in entries)
+        if not entries or any(not isinstance(row, FluencyDecisionEntryV0) for row in entries):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency decision entries are invalid")
+        if keys != tuple(sorted(keys)) or len(keys) != len(set(keys)):
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency decision entries must be unique and sorted")
+        correction_ids = _sorted_ids(self.correction_ids, "Fluency correction IDs")
+        expected_corrections = tuple(row.stable_id for row in entries if row.findings)
+        if correction_ids != expected_corrections:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency correction IDs drift")
+        expected_status = (
+            FluencyDecisionStatusV0.CORRECTION_REQUIRED
+            if correction_ids
+            else FluencyDecisionStatusV0.FLUENCY_VERIFIED
+        )
+        if self.status is not expected_status:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency decision status drift")
+        object.__setattr__(self, "entries", entries)
+        object.__setattr__(self, "correction_ids", correction_ids)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract": "locpipe.fluency.decision/v0",
+            "job_id": self.job_id,
+            "invocation_id": self.invocation_id,
+            "plan_sha256": self.plan_sha256,
+            "packet_sha256": self.packet_sha256,
+            "candidate_sha256": self.candidate_sha256,
+            "content_config_digest": self.content_config_digest,
+            "provider_config_digest": self.provider_config_digest,
+            "raw_output_sha256": self.raw_output_sha256,
+            "submission_sha256": self.submission_sha256,
+            "status": self.status.value,
+            "entries": [row.as_dict() for row in self.entries],
+            "correction_ids": list(self.correction_ids),
+        }
+
+    @property
+    def digest(self) -> str:
+        return raw_sha256(canonical_json_bytes(self.as_dict()))
+
+
+@dataclass(frozen=True)
+class FluencyStateV0:
+    job_id: str
+    invocation_id: str
+    plan_sha256: str
+    packet_sha256: str
+    candidate_sha256: str
+    content_config_digest: str
+    provider_config_digest: str
+    raw_output_sha256: str
+    selected_submission_sha256: str
+    decision_sha256: str
+    status: FluencyDecisionStatusV0
+
+    def __post_init__(self) -> None:
+        _nonempty(self.job_id, "Fluency state job ID")
+        _nonempty(self.invocation_id, "Fluency state invocation ID")
+        for value, name in (
+            (self.plan_sha256, "Fluency state plan SHA"),
+            (self.packet_sha256, "Fluency state packet SHA"),
+            (self.candidate_sha256, "Fluency state candidate SHA"),
+            (self.content_config_digest, "Fluency state content config digest"),
+            (self.provider_config_digest, "Fluency state provider config digest"),
+            (self.raw_output_sha256, "Fluency state raw output SHA"),
+            (self.selected_submission_sha256, "Fluency state submission SHA"),
+            (self.decision_sha256, "Fluency state decision SHA"),
+        ):
+            _sha(value, name)
+        if not isinstance(self.status, FluencyDecisionStatusV0):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency state status is invalid")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract": "locpipe.fluency.state/v0",
+            "job_id": self.job_id,
+            "invocation_id": self.invocation_id,
+            "plan_sha256": self.plan_sha256,
+            "packet_sha256": self.packet_sha256,
+            "candidate_sha256": self.candidate_sha256,
+            "content_config_digest": self.content_config_digest,
+            "provider_config_digest": self.provider_config_digest,
+            "raw_output_sha256": self.raw_output_sha256,
+            "selected_submission_sha256": self.selected_submission_sha256,
+            "decision_sha256": self.decision_sha256,
+            "status": self.status.value,
         }
 
 
