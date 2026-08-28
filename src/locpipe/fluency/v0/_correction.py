@@ -64,8 +64,9 @@ from ._models import (
     FluencyReviewPacketV0,
     FluencyReviewPlanV0,
     FluencyStateV0,
+    FluencyTargetProjectionV0,
 )
-from ._packet import fluency_bindings_from_config_v0
+from ._packet import build_fluency_review_job_v0, fluency_bindings_from_config_v0
 from ._serialization import parse_fluency_adjudication_v0, parse_fluency_correction_trigger_v0
 
 
@@ -115,6 +116,8 @@ def build_fluency_editorial_correction_v0(
     fluency_state: FluencyStateV0,
     *,
     budget: ProviderBudgetV0,
+    parent_adjudication_bytes: bytes | None = None,
+    parent_trigger_bytes: bytes | None = None,
 ) -> tuple[EditorialJobV0, EditorialPacketV0, bytes]:
     """Build a source-aware accuracy job from accepted target-only findings."""
     if not all(isinstance(value, selected) for value, selected in (
@@ -173,6 +176,24 @@ def build_fluency_editorial_correction_v0(
         or not fluency_decision.correction_ids
     ):
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency correction requires accepted findings")
+    if fluency_plan.round_index == 0:
+        if parent_adjudication_bytes is not None or parent_trigger_bytes is not None:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Initial fluency correction cannot have parent authority")
+    else:
+        if not isinstance(parent_adjudication_bytes, bytes) or not isinstance(parent_trigger_bytes, bytes):
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Later fluency correction requires parent trigger and adjudication")
+        parent_trigger = parse_fluency_correction_trigger_v0(parent_trigger_bytes)
+        parent_adjudication = parse_fluency_adjudication_v0(parent_adjudication_bytes)
+        if (
+            raw_sha256(parent_trigger_bytes) != parent_adjudication.trigger_sha256
+            or parent_adjudication.status is not FluencyAdjudicationStatusV0.CORRECTIONS_READY_FOR_RECHECK
+            or raw_sha256(parent_adjudication_bytes) != fluency_plan.parent_terminal_sha256
+            or parent_adjudication.resulting_candidate_sha256 != fluency_plan.candidate_sha256
+            or fluency_plan.requested_ids != parent_adjudication.corrected_ids
+            or fluency_plan.round_index != parent_trigger.current_fluency_round + 1
+            or fluency_plan.max_correction_rounds != parent_trigger.max_fluency_correction_rounds
+        ):
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency correction parent authority drift")
     if fluency_plan.round_index >= fluency_plan.max_correction_rounds:
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency correction round is exhausted")
 
@@ -665,3 +686,99 @@ def accept_fluency_adjudication_v0(
     if parse_fluency_adjudication_v0(adjudication_bytes) != adjudication:
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication serialization drift")
     return adjudication
+
+
+def build_fluency_recheck_job_v0(
+    context: ProjectContextV0,
+    resolved: ResolvedConfigV0,
+    trigger_bytes: bytes,
+    adjudication_bytes: bytes,
+    accuracy_job: EditorialJobV0,
+    accuracy_packet: EditorialPacketV0,
+    policy: EditorialPolicyV0,
+    parent_candidate: EditorialCandidateSetV0,
+    receipt: EditorialSubmissionReceiptV0,
+    raw_output: bytes,
+    terminal_artifacts: tuple[tuple[str, bytes], ...],
+    candidate_evidence: tuple[tuple[str, bytes], ...],
+    projection: FluencyTargetProjectionV0,
+    *,
+    budget: ProviderBudgetV0,
+) -> tuple[FluencyReviewPlanV0, FluencyReviewJobV0, FluencyReviewPacketV0]:
+    """Build an exact corrected-ID target-only recheck from accepted accuracy evidence."""
+    if not all(isinstance(value, selected) for value, selected in (
+        (context, ProjectContextV0),
+        (resolved, ResolvedConfigV0),
+        (accuracy_job, EditorialJobV0),
+        (accuracy_packet, EditorialPacketV0),
+        (policy, EditorialPolicyV0),
+        (parent_candidate, EditorialCandidateSetV0),
+        (receipt, EditorialSubmissionReceiptV0),
+        (projection, FluencyTargetProjectionV0),
+        (budget, ProviderBudgetV0),
+    )) or not isinstance(trigger_bytes, bytes) or not isinstance(adjudication_bytes, bytes) or not isinstance(raw_output, bytes):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency recheck inputs are invalid")
+
+    trigger = parse_fluency_correction_trigger_v0(trigger_bytes)
+    adjudication = parse_fluency_adjudication_v0(adjudication_bytes)
+    rebuilt_adjudication = accept_fluency_adjudication_v0(
+        resolved,
+        trigger_bytes,
+        accuracy_job,
+        accuracy_packet,
+        policy,
+        parent_candidate,
+        receipt,
+        raw_output,
+        terminal_artifacts,
+    )
+    if rebuilt_adjudication != adjudication:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency recheck adjudication drift")
+    if (
+        adjudication.status is not FluencyAdjudicationStatusV0.CORRECTIONS_READY_FOR_RECHECK
+        or not adjudication.corrected_ids
+        or adjudication.trigger_sha256 != raw_sha256(trigger_bytes)
+    ):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency recheck requires accepted corrections")
+
+    terminal = dict(editorial_terminal_artifacts_v0(
+        accuracy_job,
+        accuracy_packet,
+        policy,
+        parent_candidate,
+        receipt,
+        raw_output,
+    ))
+    candidate_path = posixpath.join(editorial_job_root_v0(accuracy_job), "candidate_set.json")
+    resulting_candidate_bytes = terminal[candidate_path]
+    resulting_candidate = parse_editorial_candidate_v0(resulting_candidate_bytes)
+    candidate_authority_sha, editorial_round, max_editorial_rounds, available = _validate_candidate_authority(
+        resulting_candidate,
+        candidate_evidence,
+        accuracy_job,
+        accuracy_packet,
+        policy,
+    )
+    if (
+        not available
+        or raw_sha256(resulting_candidate_bytes) != adjudication.resulting_candidate_sha256
+        or editorial_round != accuracy_job.round_index
+        or max_editorial_rounds != policy.max_rework_rounds
+    ):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency recheck candidate authority drift")
+
+    next_round = trigger.current_fluency_round + 1
+    if next_round > trigger.max_fluency_correction_rounds:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency recheck round is exhausted")
+    return build_fluency_review_job_v0(
+        context,
+        resolved,
+        resulting_candidate,
+        projection,
+        candidate_authority_sha256=candidate_authority_sha,
+        requested_ids=adjudication.corrected_ids,
+        budget=budget,
+        round_index=next_round,
+        max_correction_rounds=trigger.max_fluency_correction_rounds,
+        parent_terminal_sha256=adjudication.digest,
+    )
