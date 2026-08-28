@@ -24,6 +24,11 @@ DENY_TOKENS = (
     ("private" + "_fixtures").encode(),
     ("steamapps" + "/common").encode(),
 )
+SYNTHETIC_WINDOWS_ABSOLUTE_MARKER_PATHS = frozenset({
+    "tests/test_public_boundary.py",
+    "tests/test_validation_v0_compatibility.py",
+})
+SYNTHETIC_WINDOWS_ABSOLUTE_MARKER = b"C:" + b"/drive.json"
 ALLOWED_GIT_IDENTITIES = {
     ("PainfulGit", "258659461+PainfulGit@users.noreply.github.com"),
 }
@@ -119,7 +124,13 @@ def _is_text(path: str) -> bool:
 def _scan_payload(path: str, payload: bytes) -> None:
     if not _is_text(path):
         return
-    if any(pattern.search(payload) for pattern in (WINDOWS_ABSOLUTE, UNC_ABSOLUTE, WINDOWS_DEVICE_ABSOLUTE, POSIX_ABSOLUTE)):
+    absolute_path_payload = payload
+    if path in SYNTHETIC_WINDOWS_ABSOLUTE_MARKER_PATHS:
+        absolute_path_payload = absolute_path_payload.replace(SYNTHETIC_WINDOWS_ABSOLUTE_MARKER, b"")
+    if any(
+        pattern.search(absolute_path_payload)
+        for pattern in (WINDOWS_ABSOLUTE, UNC_ABSOLUTE, WINDOWS_DEVICE_ABSOLUTE, POSIX_ABSOLUTE)
+    ):
         raise SystemExit(f"absolute path rejected: {path}")
     folded = payload.lower()
     if any(token.lower() in folded for token in DENY_TOKENS):

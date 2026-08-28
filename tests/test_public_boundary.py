@@ -12,6 +12,7 @@ from tools.check_public_boundary import (
     MANIFEST_SCHEMA_VERSION,
     _manifest_bytes,
     _manifest_tree_sha256,
+    _scan_payload,
     _scan_commit_metadata,
     _strict_json_loads,
     _tracked_files,
@@ -51,6 +52,23 @@ class PublicBoundaryMetadataTests(unittest.TestCase):
             _validate_commit_metadata((
                 ("b" * 40, "PainfulGit", "258659461+PainfulGit@users.noreply.github.com", "Contributor", "name@example.com"),
             ))
+
+    def test_synthetic_windows_marker_exception_is_exact_and_path_bound(self) -> None:
+        marker = b"C:" + b"/drive.json"
+        allowed_paths = (
+            "tests/test_public_boundary.py",
+            "tests/test_validation_v0_compatibility.py",
+        )
+        for path in allowed_paths:
+            with self.subTest(path=path):
+                _scan_payload(path, b"synthetic fixture: " + marker + b"\n")
+
+        with self.assertRaisesRegex(SystemExit, "absolute path rejected"):
+            _scan_payload("tests/test_other.py", marker)
+        with self.assertRaisesRegex(SystemExit, "absolute path rejected"):
+            _scan_payload(allowed_paths[0], b"D:" + b"/other.json")
+        with self.assertRaisesRegex(SystemExit, "private token rejected"):
+            _scan_payload(allowed_paths[0], marker + b"\n" + b"Citizen" + b" Sleeper")
 
 
 class PublicManifestContractTests(unittest.TestCase):
