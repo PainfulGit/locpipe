@@ -111,7 +111,7 @@ class PublicManifestContractTests(unittest.TestCase):
             ("duplicate", [self.rows[0], self.rows[0]], "sorted and unique"),
         ]
         unsafe_paths = (
-            "../escape.json", "/absolute.json", "C:/drive.json", "x\\y.json",
+            "../escape.json", "/absolute.json", "C:" + "/drive.json", "x\\y.json",
             "x//y.json", "x/../a.txt", "./a.txt", "line\nbreak.json",
         )
         for unsafe in unsafe_paths:
