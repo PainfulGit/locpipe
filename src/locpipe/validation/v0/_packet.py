@@ -223,7 +223,25 @@ def _validate_relations(packet: TranslationPacketV0) -> None:
                     raise ContractViolation(ErrorCode.DANGLING_RELATION, "Validation relation logical message is outside packet")
 
 
-def build_content_validation_job_v0(
+def _validate_supplemental_authority_path_v0(value: object) -> str:
+    parts = value.split("/") if isinstance(value, str) else []
+    if (
+        not isinstance(value, str)
+        or not value
+        or value.startswith("/")
+        or "\\" in value
+        or ":" in value
+        or any(part in {"", ".", ".."} for part in parts)
+        or posixpath.normpath(value) != value
+    ):
+        raise ContractViolation(
+            ErrorCode.MALFORMED_ARTIFACT,
+            f"Validation supplemental authority path is not canonical relative POSIX: {value!r}",
+        )
+    return value
+
+
+def _build_content_validation_job_from_authority_v0(
     context: ProjectContextV0,
     resolved: ResolvedConfigV0,
     scope: FrozenScopeV0,
@@ -244,7 +262,24 @@ def build_content_validation_job_v0(
     editorial_job: EditorialJobV0 | None = None,
     editorial_packet: EditorialPacketV0 | None = None,
     editorial_policy: EditorialPolicyV0 | None = None,
+    supplemental_authority: tuple[tuple[str, bytes], ...],
 ) -> tuple[ContentValidationJobV0, ContentValidationPacketV0, tuple[tuple[str, bytes], ...]]:
+    if not isinstance(supplemental_authority, tuple):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Validation supplemental authority must be an immutable tuple")
+    supplemental_rows: list[tuple[str, bytes]] = []
+    for row in supplemental_authority:
+        if (
+            not isinstance(row, tuple)
+            or len(row) != 2
+            or not isinstance(row[1], bytes)
+        ):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Validation supplemental authority row is invalid")
+        supplemental_rows.append((_validate_supplemental_authority_path_v0(row[0]), row[1]))
+    supplemental = tuple(supplemental_rows)
+    supplemental_paths = tuple(path for path, _payload in supplemental)
+    if supplemental_paths != tuple(sorted(supplemental_paths)) or len(supplemental_paths) != len(set(supplemental_paths)):
+        raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Validation supplemental authority paths must be unique and sorted")
+
     validate_context_config_binding(context, resolved)
     if context.context_digest != translation_job.context_digest or context.config_snapshot_sha256 != resolved.config_snapshot_sha256:
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation context differs from translation authority")
@@ -341,7 +376,7 @@ def build_content_validation_job_v0(
         tuple(sorted(translation_packet._relation_bytes)),
     )
     translation_root = translation_job_root_v0(translation_job)
-    authority = tuple(sorted((
+    base_authority = tuple(sorted((
         ("corpus/segments.jsonl", bytes(segments_bytes)),
         ("reconciliation/reconciliation.json", bytes(reconciliation_bytes)),
         ("scope/scope.json", bytes(scope_bytes)),
@@ -354,6 +389,10 @@ def build_content_validation_job_v0(
         (posixpath.join(translation_root, "target_set.json"), canonical_json_bytes(target_set.as_dict())),
         *candidate_evidence,
     )))
+    base_paths = {path for path, _payload in base_authority}
+    if base_paths.intersection(supplemental_paths):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation supplemental authority collides with base authority")
+    authority = tuple(sorted((*base_authority, *supplemental)))
     authority_sha = semantic_sha256(_artifact_projection(authority))
     packet_sha = raw_sha256(canonical_json_bytes(packet.as_dict()))
     identity = {
@@ -395,6 +434,52 @@ def build_content_validation_job_v0(
         max_rounds,
     )
     return job, packet, authority
+
+
+def build_content_validation_job_v0(
+    context: ProjectContextV0,
+    resolved: ResolvedConfigV0,
+    scope: FrozenScopeV0,
+    translation_job: TranslationJobV0,
+    translation_packet: TranslationPacketV0,
+    translation_decision_bytes: bytes,
+    translation_state_bytes: bytes,
+    target_set: TranslationTargetSetV0,
+    candidate: EditorialCandidateSetV0,
+    validator: ContentValidatorV0,
+    *,
+    source_lock_bytes: bytes,
+    reconciliation_bytes: bytes,
+    scope_bytes: bytes,
+    scope_lock_bytes: bytes,
+    segments_bytes: bytes,
+    candidate_evidence: tuple[tuple[str, bytes], ...],
+    editorial_job: EditorialJobV0 | None = None,
+    editorial_packet: EditorialPacketV0 | None = None,
+    editorial_policy: EditorialPolicyV0 | None = None,
+) -> tuple[ContentValidationJobV0, ContentValidationPacketV0, tuple[tuple[str, bytes], ...]]:
+    return _build_content_validation_job_from_authority_v0(
+        context,
+        resolved,
+        scope,
+        translation_job,
+        translation_packet,
+        translation_decision_bytes,
+        translation_state_bytes,
+        target_set,
+        candidate,
+        validator,
+        source_lock_bytes=source_lock_bytes,
+        reconciliation_bytes=reconciliation_bytes,
+        scope_bytes=scope_bytes,
+        scope_lock_bytes=scope_lock_bytes,
+        segments_bytes=segments_bytes,
+        candidate_evidence=candidate_evidence,
+        editorial_job=editorial_job,
+        editorial_packet=editorial_packet,
+        editorial_policy=editorial_policy,
+        supplemental_authority=(),
+    )
 
 
 def validation_job_root_v0(job: ContentValidationJobV0) -> str:
