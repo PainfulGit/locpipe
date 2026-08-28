@@ -296,6 +296,74 @@ def editorial_terminal_artifacts_v0(
     )))
 
 
+def _execute_triggered_editorial_acceptance_v0(
+    request: OperationRequestV0,
+    operation_context: OperationContextV0,
+    *,
+    origin_domain: str,
+    expected_job: EditorialJobV0,
+    expected_packet: EditorialPacketV0,
+    expected_policy: EditorialPolicyV0,
+    expected_parent: EditorialCandidateSetV0,
+    expected_inputs: tuple[tuple[str, bytes], ...],
+    receipt: EditorialSubmissionReceiptV0,
+    raw_output: bytes,
+    rebuilt_authority: tuple[EditorialJobV0, EditorialPacketV0, bytes],
+    expected_trigger_bytes: bytes,
+) -> ErrorRecord | None:
+    """Execute a closed triggered-origin acceptance with domain-verified inputs."""
+    labels = {
+        "validation": (
+            "Validation editorial handler received wrong capability",
+            "Validation editorial output contract drift",
+            "Validation editorial input contract drift",
+            "Validation editorial input authority drift",
+            "Validation editorial submission selection drift",
+            "Validation editorial runtime rebuild drift",
+        ),
+        "fluency": (
+            "Fluency accuracy handler received wrong capability",
+            "Fluency accuracy output contract drift",
+            "Fluency accuracy input contract drift",
+            "Fluency accuracy input authority drift",
+            "Fluency accuracy submission selection drift",
+            "Fluency accuracy runtime rebuild drift",
+        ),
+    }
+    if origin_domain not in labels:
+        return ContractViolation(
+            ErrorCode.BINDING_MISMATCH,
+            "Triggered editorial acceptance origin domain is invalid",
+        ).as_record()
+    capability_error, outputs_error, paths_error, inputs_error, selection_error, rebuild_error = labels[origin_domain]
+    try:
+        if request.capability is not Capability.EDITORIAL_REVIEW:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, capability_error)
+        if request.declared_outputs != editorial_acceptance_output_declarations_v0(expected_job):
+            raise ContractViolation(ErrorCode.OUTPUT_CONTRACT_VIOLATION, outputs_error)
+        if tuple(row.path for row in request.inputs) != tuple(path for path, _payload in expected_inputs):
+            raise ContractViolation(ErrorCode.OUTPUT_CONTRACT_VIOLATION, paths_error)
+        for relative, payload in expected_inputs:
+            if (operation_context.input_root / Path(*relative.split("/"))).read_bytes() != payload:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, inputs_error)
+        selected_submission = parse_canonical_json(
+            dict(expected_inputs)[posixpath.join(editorial_job_root_v0(expected_job), "state.json")]
+        ).get("selected_submission_sha256")
+        if editorial_submission_digest_v0(receipt) != selected_submission:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, selection_error)
+        if rebuilt_authority != (expected_job, expected_packet, expected_trigger_bytes):
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, rebuild_error)
+        for relative, payload in editorial_terminal_artifacts_v0(
+            expected_job, expected_packet, expected_policy, expected_parent, receipt, raw_output,
+        ):
+            output = operation_context.staging_root / Path(*relative.split("/"))
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_bytes(payload)
+        return None
+    except ContractViolation as error:
+        return error.as_record()
+
+
 def bind_editorial_acceptance_v0(
     module: ModuleDescriptorV0,
     project_context: ProjectContextV0,

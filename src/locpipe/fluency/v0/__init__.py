@@ -19,7 +19,13 @@ from ._models import (
     FluencyTargetProjectionV0,
     MAX_DIAGNOSTIC_NOTE_CODEPOINTS,
 )
-from ._correction import build_fluency_editorial_correction_v0
+from ._correction import (
+    bind_fluency_accuracy_acceptance_v0,
+    build_fluency_editorial_correction_v0,
+    fluency_accuracy_acceptance_inputs_v0,
+    fluency_accuracy_provider_inputs_v0,
+    fluency_correction_trigger_path_v0,
+)
 from ._acceptance import (
     accept_fluency_submission_v0,
     bind_fluency_submission_receipt_v0,
@@ -57,10 +63,14 @@ __all__ = [
     "MAX_DIAGNOSTIC_NOTE_CODEPOINTS",
     "OUTPUT_CONTRACT_SHA256",
     "accept_fluency_submission_v0",
+    "bind_fluency_accuracy_acceptance_v0",
     "bind_fluency_submission_receipt_v0",
     "build_fluency_editorial_correction_v0",
     "build_fluency_review_job_v0",
     "fluency_submission_digest_v0",
+    "fluency_accuracy_acceptance_inputs_v0",
+    "fluency_accuracy_provider_inputs_v0",
     "fluency_bindings_from_config_v0",
+    "fluency_correction_trigger_path_v0",
     "parse_fluency_correction_trigger_v0",
 ]

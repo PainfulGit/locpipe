@@ -721,6 +721,31 @@ class ContentValidationV0Tests(unittest.TestCase):
                 declaration.path: (staging / Path(*declaration.path.split("/"))).read_bytes()
                 for declaration in editorial_acceptance_output_declarations_v0(editorial_job)
             }
+        self.assertEqual("3a8bb6027da1cd89f72c288409aefda8d8d46921998e47b0064540c9b89e4b58", raw_sha256(trigger_bytes))
+        self.assertEqual(
+            "75dfa146a18098a1afd3c897446f995e5ce2e291a429e5ea0824e8123ff81fb8",
+            raw_sha256(canonical_json_bytes(editorial_packet.as_dict())),
+        )
+        self.assertEqual(
+            "9adeee30c7d033b114987be6b2f3d424a76b7c9b2001875fefc8a42bfd0d6c2a",
+            raw_sha256(canonical_json_bytes(editorial_job.as_dict())),
+        )
+        self.assertEqual("editorial-c0aaf8810358d13e58aaf04bf520ee52", editorial_job.job_id)
+        self.assertEqual("invocation-3c68576dc3c5981954b3d6b105a2b8b6", editorial_job.invocation_id)
+        self.assertEqual(
+            "ca60cdc349b0eaf6c38cd32d59f6548217495e641244065b864ac4be69d06a9d",
+            semantic_sha256([
+                {"path": path, "sha256": raw_sha256(payload)}
+                for path, payload in inputs_rows
+            ]),
+        )
+        self.assertEqual(
+            "8379091dcfa0fb4ea216f2d97c4cd117090b09410cf28336f4e7cef9f23a30ed",
+            semantic_sha256([
+                {"path": path, "sha256": raw_sha256(payload)}
+                for path, payload in sorted(terminal.items())
+            ]),
+        )
         corrected = parse_editorial_candidate_v0(terminal[f"{eroot}/candidate_set.json"])
         corrected_evidence = tuple(sorted((
             (f"{eroot}/job.json", canonical_json_bytes(editorial_job.as_dict())),
