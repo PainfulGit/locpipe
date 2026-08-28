@@ -877,5 +877,67 @@ class FluencyAdjudicationV0:
         return raw_sha256(canonical_json_bytes(self.as_dict()))
 
 
+class FluencyCorrectionTerminalStatusV0(str, Enum):
+    FLUENCY_VERIFIED_WITH_DISMISSALS = "FLUENCY_VERIFIED_WITH_DISMISSALS"
+    FLUENCY_VERIFIED = "FLUENCY_VERIFIED"
+    REWORK_EXHAUSTED = "REWORK_EXHAUSTED"
+
+
+@dataclass(frozen=True)
+class FluencyCorrectionTerminalV0:
+    status: FluencyCorrectionTerminalStatusV0
+    candidate_sha256: str
+    candidate_authority_sha256: str
+    correction_chain_sha256: str
+    round_index: int
+    max_correction_rounds: int
+    unresolved_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.status, FluencyCorrectionTerminalStatusV0):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction terminal status is invalid")
+        for value, name in (
+            (self.candidate_sha256, "Fluency correction terminal candidate SHA"),
+            (self.candidate_authority_sha256, "Fluency correction terminal candidate authority SHA"),
+            (self.correction_chain_sha256, "Fluency correction terminal chain SHA"),
+        ):
+            _sha(value, name)
+        if (
+            not isinstance(self.round_index, int)
+            or isinstance(self.round_index, bool)
+            or not isinstance(self.max_correction_rounds, int)
+            or isinstance(self.max_correction_rounds, bool)
+            or not 0 <= self.round_index <= self.max_correction_rounds <= 2
+        ):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction terminal round policy is invalid")
+        unresolved_ids = _sorted_ids(self.unresolved_ids, "Fluency correction terminal unresolved IDs")
+        if self.status is FluencyCorrectionTerminalStatusV0.FLUENCY_VERIFIED_WITH_DISMISSALS:
+            if unresolved_ids or self.round_index >= self.max_correction_rounds:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency dismissal terminal bindings drift")
+        elif self.status is FluencyCorrectionTerminalStatusV0.FLUENCY_VERIFIED:
+            if unresolved_ids or self.round_index == 0:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency verified correction terminal bindings drift")
+        elif self.status is FluencyCorrectionTerminalStatusV0.REWORK_EXHAUSTED:
+            if not unresolved_ids or self.round_index != self.max_correction_rounds:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency exhausted correction terminal bindings drift")
+        object.__setattr__(self, "unresolved_ids", unresolved_ids)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract": "locpipe.fluency.correction-terminal/v0",
+            "status": self.status.value,
+            "candidate_sha256": self.candidate_sha256,
+            "candidate_authority_sha256": self.candidate_authority_sha256,
+            "correction_chain_sha256": self.correction_chain_sha256,
+            "round_index": self.round_index,
+            "max_correction_rounds": self.max_correction_rounds,
+            "unresolved_ids": list(self.unresolved_ids),
+        }
+
+    @property
+    def digest(self) -> str:
+        return raw_sha256(canonical_json_bytes(self.as_dict()))
+
+
 def candidate_raw_sha(candidate: object) -> str:
     return raw_sha256(canonical_json_bytes(candidate.as_dict()))
