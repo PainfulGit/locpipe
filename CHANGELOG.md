@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Additive `locpipe.fluency.v0` target-only review contracts with exact coverage,
+  immutable findings, bounded source-aware correction, corrected-ID recheck and
+  exact fluency authority binding into existing content validation.
+- Packaged invented lifecycle evidence for no-findings and one-correction paths;
+  both reuse existing validation publication and reach `CONTENT_VERIFIED`.
+
 ## 0.1.0b1
 
 - Frozen deterministic contracts v0 beta baseline.

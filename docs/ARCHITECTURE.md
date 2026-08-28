@@ -10,6 +10,8 @@ The package is organized as versioned, import-only facades:
 - `locpipe.content.v0`: source locks, reconciliation and frozen scope;
 - `locpipe.translation.v0`: immutable provider jobs and acceptance;
 - `locpipe.editorial.v0`: receipt-bound corrections and bounded rework;
+- `locpipe.fluency.v0`: source-isolated target review, exact findings coverage,
+  bounded accuracy correction/recheck and validation-authority binding;
 - `locpipe.validation.v0`: deterministic validation and `CONTENT_VERIFIED`.
 
 Handlers see declared inputs and isolated staging. Core validates hashes and
@@ -18,3 +20,9 @@ not create authoritative receipts.
 
 The package is game-, language- and provider-neutral. A project supplies pinned
 adapters/modules, configuration, source data and policy outside the core.
+
+Fluency artifacts are immutable inputs to exact binders; they do not introduce
+a second publication hierarchy. Verified fluency authority is normalized into
+one supplemental validation artifact, while the existing validation and
+context-transaction path remains the sole owner of authoritative publication,
+recovery and `CONTENT_VERIFIED` output.
