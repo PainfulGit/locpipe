@@ -16,6 +16,8 @@ from locpipe.content.v0 import frozen_scope_artifacts_v0, reconcile_sources_v0  
 from locpipe.contracts.v0 import (  # noqa: E402
     ArtifactHashV0,
     Capability,
+    ContractViolation,
+    ErrorCode,
     ModuleDescriptorV0,
     OperationRequestV0,
     canonical_json_bytes,
@@ -372,6 +374,86 @@ def publish_validation_evidence(fixture, operation_result, outputs):
 
 
 class ContentValidationV0Tests(unittest.TestCase):
+    def test_validation_editorial_rework_characterization_v0(self) -> None:
+        fixture = validation_fixture(
+            "structured", SyntheticStructuredAdapterV0(), broken_placeholder=True,
+        )
+        _result, outputs = run_validation(fixture)
+        root = validation_job_root_v0(fixture["job"])
+        editorial_job, editorial_packet, trigger_bytes = build_validation_editorial_rework_v0(
+            fixture["context"], fixture["resolved"], fixture["translation_job"],
+            fixture["translation_packet"], fixture["translation_decision_bytes"],
+            fixture["translation_state_bytes"], fixture["translation_target_set"],
+            fixture["editorial_policy"], fixture["candidate"], fixture["candidate_evidence"],
+            fixture["editorial_job"], fixture["editorial_packet"], fixture["job"], fixture["packet"],
+            outputs[f"{root}/report.json"], outputs[f"{root}/state.json"],
+            outputs[f"{root}/rework_request.json"], budget=ProviderBudgetV0(None, None),
+        )
+        self.assertEqual(
+            {
+                "trigger_sha256": "3a8bb6027da1cd89f72c288409aefda8d8d46921998e47b0064540c9b89e4b58",
+                "packet_sha256": "75dfa146a18098a1afd3c897446f995e5ce2e291a429e5ea0824e8123ff81fb8",
+                "job_sha256": "9adeee30c7d033b114987be6b2f3d424a76b7c9b2001875fefc8a42bfd0d6c2a",
+                "job_id": "editorial-c0aaf8810358d13e58aaf04bf520ee52",
+                "invocation_id": "invocation-3c68576dc3c5981954b3d6b105a2b8b6",
+            },
+            {
+                "trigger_sha256": raw_sha256(trigger_bytes),
+                "packet_sha256": raw_sha256(canonical_json_bytes(editorial_packet.as_dict())),
+                "job_sha256": raw_sha256(canonical_json_bytes(editorial_job.as_dict())),
+                "job_id": editorial_job.job_id,
+                "invocation_id": editorial_job.invocation_id,
+            },
+        )
+        trigger = parse_canonical_json(trigger_bytes)
+        self.assertEqual("locpipe.validation.editorial-trigger/v0", trigger["contract"])
+        self.assertEqual(list(editorial_packet.requested_ids), trigger["requested_ids"])
+        self.assertEqual(fixture["job"].editorial_round_index, trigger["previous_round"])
+        self.assertEqual(editorial_job.round_index, trigger["next_round"])
+        self.assertEqual(tuple(sorted(editorial_packet.requested_ids)), editorial_packet.requested_ids)
+
+        def rebuild(*, validation_job=None, policy=None, rework_bytes=None):
+            return build_validation_editorial_rework_v0(
+                fixture["context"], fixture["resolved"], fixture["translation_job"],
+                fixture["translation_packet"], fixture["translation_decision_bytes"],
+                fixture["translation_state_bytes"], fixture["translation_target_set"],
+                policy or fixture["editorial_policy"], fixture["candidate"], fixture["candidate_evidence"],
+                fixture["editorial_job"], fixture["editorial_packet"], validation_job or fixture["job"],
+                fixture["packet"], outputs[f"{root}/report.json"], outputs[f"{root}/state.json"],
+                rework_bytes or outputs[f"{root}/rework_request.json"],
+                budget=ProviderBudgetV0(None, None),
+            )
+
+        cases = (
+            (
+                {"validation_job": replace(fixture["job"], candidate_authority_sha256="0" * 64)},
+                "Validation parent editorial authority drift",
+            ),
+            (
+                {"validation_job": replace(
+                    fixture["job"], editorial_round_index=fixture["job"].editorial_round_index + 1,
+                )},
+                "Validation/editorial authority differs from translation context",
+            ),
+            (
+                {"policy": EditorialPolicyV0(1)},
+                "Validation/editorial authority differs from translation context",
+            ),
+            (
+                {"rework_bytes": canonical_json_bytes({
+                    **parse_canonical_json(outputs[f"{root}/rework_request.json"]),
+                    "requested_ids": [],
+                })},
+                "Validation-origin editorial trigger drift",
+            ),
+        )
+        for arguments, detail in cases:
+            with self.subTest(detail=detail):
+                with self.assertRaises(ContractViolation) as caught:
+                    rebuild(**arguments)
+                self.assertEqual(ErrorCode.BINDING_MISMATCH, caught.exception.record.code)
+                self.assertEqual(detail, caught.exception.record.detail)
+
     def test_flat_and_structured_are_deterministic_and_locale_verified(self) -> None:
         for name, adapter in (("flat", SyntheticFlatAdapterV0()), ("structured", SyntheticStructuredAdapterV0())):
             first = validation_fixture(name, adapter)

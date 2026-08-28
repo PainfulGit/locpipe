@@ -259,6 +259,168 @@ def _candidate_targets_by_logical(candidate: EditorialCandidateSetV0) -> dict[tu
     return result
 
 
+def _build_triggered_editorial_job_v0(
+    context: ProjectContextV0,
+    resolved: ResolvedConfigV0,
+    translation_job: TranslationJobV0,
+    translation_packet: TranslationPacketV0,
+    translation_decision_bytes: bytes,
+    translation_state_bytes: bytes,
+    parent_candidate: EditorialCandidateSetV0,
+    policy: EditorialPolicyV0,
+    module: ModuleDescriptorV0,
+    provider: ProviderBindingV0,
+    *,
+    requested_ids: tuple[str, ...],
+    round_index: int,
+    trigger_bytes: bytes,
+    origin_domain: str,
+    budget: ProviderBudgetV0,
+) -> tuple[EditorialJobV0, EditorialPacketV0]:
+    """Build an exact-ID editorial job after origin-specific authority validation."""
+    origins = {
+        "validation": ("validation-origin-job", "validation_trigger_sha256"),
+        "fluency": ("fluency-origin-job", "fluency_trigger_sha256"),
+    }
+    if origin_domain not in origins:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Triggered editorial origin domain is invalid")
+    if not all(isinstance(value, selected) for value, selected in (
+        (context, ProjectContextV0),
+        (resolved, ResolvedConfigV0),
+        (translation_job, TranslationJobV0),
+        (translation_packet, TranslationPacketV0),
+        (parent_candidate, EditorialCandidateSetV0),
+        (policy, EditorialPolicyV0),
+        (module, ModuleDescriptorV0),
+        (provider, ProviderBindingV0),
+        (budget, ProviderBudgetV0),
+    )):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Triggered editorial inputs are invalid")
+    trigger = parse_canonical_json(trigger_bytes)
+    if canonical_json_bytes(trigger) != trigger_bytes:
+        raise ContractViolation(ErrorCode.CANONICALIZATION_ERROR, "Triggered editorial evidence is not canonical")
+    requested = tuple(requested_ids)
+    if (
+        not requested
+        or requested != tuple(sorted(requested))
+        or len(requested) != len(set(requested))
+        or any(not isinstance(value, str) or not value for value in requested)
+    ):
+        raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Triggered editorial requested IDs must be non-empty, unique and sorted")
+    if (
+        not isinstance(round_index, int)
+        or isinstance(round_index, bool)
+        or round_index < 1
+        or round_index > policy.max_rework_rounds
+    ):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Triggered editorial round exceeds policy")
+    if (
+        context.context_digest != translation_job.context_digest
+        or translation_job.content_config_digest != resolved.content_config_digest
+        or translation_job.effective_snapshot_sha256 != resolved.effective_snapshot_sha256
+        or parent_candidate.target_locale != translation_job.target_locale
+        or not parent_candidate.ready
+        or parent_candidate.unresolved_ids
+        or module.capability is not Capability.EDITORIAL_REVIEW
+        or provider.role != "accuracy_editor"
+    ):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Triggered editorial authority differs from translation context")
+
+    targets = _candidate_targets_by_logical(parent_candidate)
+    owned_keys = {
+        (row.identity.logical_id, row.identity.selector_path)
+        for row in translation_packet.rows if row.role is ScopeRoleV0.OWNED
+    }
+    owned_ids = {
+        row.stable_id for row in translation_packet.rows if row.role is ScopeRoleV0.OWNED
+    }
+    if set(targets) != owned_keys or not set(requested).issubset(owned_ids):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Triggered editorial target coverage drift")
+    packet_rows = tuple(sorted((
+        EditorialPacketRowV0(
+            row.identity,
+            row.role,
+            row.source_revision_sha,
+            row.content_type,
+            row._payload_bytes,
+            row._constraints_bytes,
+            targets.get((row.identity.logical_id, row.identity.selector_path))
+            if row.role is ScopeRoleV0.OWNED else None,
+        )
+        for row in translation_packet.rows
+    ), key=lambda row: row.stable_id))
+    packet = EditorialPacketV0(
+        translation_job.target_locale,
+        round_index,
+        requested,
+        packet_rows,
+        translation_packet._relation_bytes,
+    )
+    packet_sha = raw_sha256(canonical_json_bytes(packet.as_dict()))
+    job_kind, trigger_field = origins[origin_domain]
+    identity = {
+        "context_digest": context.context_digest,
+        "translation_job_id": translation_job.job_id,
+        "translation_decision_sha256": raw_sha256(translation_decision_bytes),
+        "translation_state_sha256": raw_sha256(translation_state_bytes),
+        "base_target_set_sha256": parent_candidate.base_target_set_sha256,
+        "parent_candidate_sha256": candidate_raw_sha(parent_candidate),
+        trigger_field: raw_sha256(trigger_bytes),
+        "scope_sha256": translation_job.scope_sha256,
+        "source_lock_sha256": translation_job.source_lock_sha256,
+        "reconciliation_sha256": translation_job.reconciliation_sha256,
+        "content_config_digest": resolved.content_config_digest,
+        "effective_snapshot_sha256": resolved.effective_snapshot_sha256,
+        "module": {
+            "capability": module.capability.value,
+            "module_id": module.module_id,
+            "version": module.version,
+            "digest": module.digest,
+        },
+        "provider": provider.as_dict(),
+        "target_locale": translation_job.target_locale,
+        "packet_sha256": packet_sha,
+        "policy_sha256": policy.digest,
+        "role_contract_sha256": ROLE_CONTRACT_SHA256,
+        "output_contract_sha256": OUTPUT_CONTRACT_SHA256,
+        "budget": budget.as_dict(),
+        "round_index": round_index,
+        "max_invocations": 1,
+    }
+    job_id = "editorial-" + semantic_sha256({"kind": job_kind, **identity})[:32]
+    invocation_id = "invocation-" + semantic_sha256({
+        "job_id": job_id,
+        "provider": provider.as_dict(),
+        "round": round_index,
+    })[:32]
+    job = EditorialJobV0(
+        job_id,
+        invocation_id,
+        context.context_digest,
+        translation_job.job_id,
+        raw_sha256(translation_decision_bytes),
+        raw_sha256(translation_state_bytes),
+        parent_candidate.base_target_set_sha256,
+        candidate_raw_sha(parent_candidate),
+        raw_sha256(trigger_bytes),
+        translation_job.scope_sha256,
+        translation_job.source_lock_sha256,
+        translation_job.reconciliation_sha256,
+        resolved.content_config_digest,
+        resolved.effective_snapshot_sha256,
+        module,
+        provider,
+        translation_job.target_locale,
+        packet_sha,
+        policy.digest,
+        ROLE_CONTRACT_SHA256,
+        OUTPUT_CONTRACT_SHA256,
+        budget,
+        round_index,
+    )
+    return job, packet
+
+
 def build_editorial_job_v0(
     context: ProjectContextV0,
     resolved: ResolvedConfigV0,

@@ -1,6 +1,8 @@
 """Import-only facade for target-side fluency review packet construction v0."""
 
 from ._models import (
+    FluencyCorrectionTriggerEntryV0,
+    FluencyCorrectionTriggerV0,
     FluencyDecisionEntryV0,
     FluencyDecisionStatusV0,
     FluencyDecisionV0,
@@ -17,6 +19,7 @@ from ._models import (
     FluencyTargetProjectionV0,
     MAX_DIAGNOSTIC_NOTE_CODEPOINTS,
 )
+from ._correction import build_fluency_editorial_correction_v0
 from ._acceptance import (
     accept_fluency_submission_v0,
     bind_fluency_submission_receipt_v0,
@@ -29,11 +32,14 @@ from ._packet import (
     build_fluency_review_job_v0,
     fluency_bindings_from_config_v0,
 )
+from ._serialization import parse_fluency_correction_trigger_v0
 
 
 __all__ = [
     "ACCURACY_ROLE_CONTRACT_SHA256",
     "FLUENCY_ROLE_CONTRACT_SHA256",
+    "FluencyCorrectionTriggerEntryV0",
+    "FluencyCorrectionTriggerV0",
     "FluencyDecisionEntryV0",
     "FluencyDecisionStatusV0",
     "FluencyDecisionV0",
@@ -52,7 +58,9 @@ __all__ = [
     "OUTPUT_CONTRACT_SHA256",
     "accept_fluency_submission_v0",
     "bind_fluency_submission_receipt_v0",
+    "build_fluency_editorial_correction_v0",
     "build_fluency_review_job_v0",
     "fluency_submission_digest_v0",
     "fluency_bindings_from_config_v0",
+    "parse_fluency_correction_trigger_v0",
 ]
