@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import re
 import subprocess
 from pathlib import Path
+from typing import Callable, Mapping, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,88 @@ DENY_TOKENS = (
 ALLOWED_GIT_IDENTITIES = {
     ("PainfulGit", "258659461+PainfulGit@users.noreply.github.com"),
 }
+MANIFEST_KEYS = frozenset({"classification", "files", "schema_version", "tree_sha256"})
+MANIFEST_ROW_KEYS = frozenset({"path", "sha256", "size"})
+MANIFEST_CLASSIFICATION = "PUBLIC_EXPORT"
+MANIFEST_SCHEMA_VERSION = 1
+TREE_CONTRACT = "locpipe.public-export-tree/v1"
+SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def _canonical_json_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _canonical_public_path(path: object) -> str:
+    if not isinstance(path, str) or not path:
+        raise SystemExit("public export manifest path is malformed")
+    if (
+        path.startswith("/")
+        or "\\" in path
+        or ":" in path
+        or any(ord(character) < 32 or ord(character) == 127 for character in path)
+    ):
+        raise SystemExit(f"unsafe public export path rejected: {path}")
+    parts = path.split("/")
+    if any(part in {"", ".", ".."} for part in parts) or posixpath.normpath(path) != path:
+        raise SystemExit(f"unsafe public export path rejected: {path}")
+    return path
+
+
+def _validated_manifest_rows(rows: object) -> tuple[dict[str, object], ...]:
+    if not isinstance(rows, list):
+        raise SystemExit("public export manifest files are malformed")
+    validated: list[dict[str, object]] = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != MANIFEST_ROW_KEYS:
+            raise SystemExit("public export manifest row is malformed")
+        path = _canonical_public_path(row["path"])
+        sha256 = row["sha256"]
+        size = row["size"]
+        if not isinstance(sha256, str) or SHA256_HEX.fullmatch(sha256) is None:
+            raise SystemExit(f"public export manifest sha256 is malformed: {path}")
+        if type(size) is not int or size < 0:
+            raise SystemExit(f"public export manifest size is malformed: {path}")
+        validated.append({"path": path, "sha256": sha256, "size": size})
+    paths = tuple(row["path"] for row in validated)
+    if paths != tuple(sorted(paths)) or len(paths) != len(set(paths)):
+        raise SystemExit("public export manifest paths are not sorted and unique")
+    return tuple(validated)
+
+
+def _manifest_tree_sha256(rows: Sequence[Mapping[str, object]]) -> str:
+    projection = {"contract": TREE_CONTRACT, "files": list(rows)}
+    return hashlib.sha256(_canonical_json_bytes(projection)).hexdigest()
+
+
+def _manifest_bytes(rows: Sequence[Mapping[str, object]]) -> bytes:
+    value = {
+        "classification": MANIFEST_CLASSIFICATION,
+        "files": list(rows),
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "tree_sha256": _manifest_tree_sha256(rows),
+    }
+    return _canonical_json_bytes(value) + b"\n"
+
+
+def _strict_json_loads(payload: bytes) -> object:
+    def object_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError(f"duplicate JSON key: {key}")
+            value[key] = item
+        return value
+
+    try:
+        return json.loads(payload.decode("utf-8"), object_pairs_hook=object_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise SystemExit("public export manifest is malformed") from exc
 
 
 def _is_text(path: str) -> bool:
@@ -42,9 +126,15 @@ def _scan_payload(path: str, payload: bytes) -> None:
         raise SystemExit(f"private token rejected: {path}")
 
 
-def _tracked_files() -> tuple[str, ...]:
-    output = subprocess.check_output(("git", "ls-files", "-z"), cwd=ROOT)
-    return tuple(sorted(row.decode("utf-8") for row in output.split(b"\0") if row))
+def _tracked_files(*, root: Path = ROOT) -> tuple[str, ...]:
+    output = subprocess.check_output(
+        ("git", "ls-tree", "-r", "--name-only", "-z", "HEAD"),
+        cwd=root,
+    )
+    paths = tuple(sorted(row.decode("utf-8") for row in output.split(b"\0") if row))
+    for path in paths:
+        _canonical_public_path(path)
+    return paths
 
 
 def _validate_commit_metadata(rows: tuple[tuple[str, str, str, str, str], ...]) -> None:
@@ -70,19 +160,43 @@ def _scan_commit_metadata() -> int:
     return len(rows)
 
 
-def _validate_manifest(paths: tuple[str, ...]) -> None:
-    value = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    rows = value.get("files")
-    if not isinstance(rows, list):
-        raise SystemExit("public export manifest is malformed")
-    expected = tuple(path for path in paths if path != MANIFEST.name)
-    actual = tuple(row.get("path") for row in rows)
+def _validate_manifest_value(
+    value: object,
+    paths: tuple[str, ...],
+    read_blob: Callable[[str], bytes],
+    *,
+    manifest_name: str = MANIFEST.name,
+) -> None:
+    if not isinstance(value, dict) or set(value) != MANIFEST_KEYS:
+        raise SystemExit("public export manifest top-level shape is malformed")
+    if value["classification"] != MANIFEST_CLASSIFICATION:
+        raise SystemExit("public export manifest classification is invalid")
+    if type(value["schema_version"]) is not int or value["schema_version"] != MANIFEST_SCHEMA_VERSION:
+        raise SystemExit("public export manifest schema version is invalid")
+    tree_sha256 = value["tree_sha256"]
+    if not isinstance(tree_sha256, str) or SHA256_HEX.fullmatch(tree_sha256) is None:
+        raise SystemExit("public export manifest tree sha256 is malformed")
+    rows = _validated_manifest_rows(value["files"])
+    expected = tuple(path for path in paths if path != manifest_name)
+    actual = tuple(row["path"] for row in rows)
     if actual != expected:
         raise SystemExit("public export manifest path set drift")
     for row in rows:
-        payload = subprocess.check_output(("git", "show", f"HEAD:{row['path']}"), cwd=ROOT)
-        if row.get("size") != len(payload) or row.get("sha256") != hashlib.sha256(payload).hexdigest():
+        payload = read_blob(str(row["path"]))
+        if row["size"] != len(payload) or row["sha256"] != hashlib.sha256(payload).hexdigest():
             raise SystemExit(f"public export manifest hash drift: {row['path']}")
+    if tree_sha256 != _manifest_tree_sha256(rows):
+        raise SystemExit("public export manifest tree sha256 drift")
+
+
+def _validate_manifest(paths: tuple[str, ...], *, root: Path = ROOT) -> None:
+    payload = subprocess.check_output(("git", "show", f"HEAD:{MANIFEST.name}"), cwd=root)
+    value = _strict_json_loads(payload)
+    _validate_manifest_value(
+        value,
+        paths,
+        lambda path: subprocess.check_output(("git", "show", f"HEAD:{path}"), cwd=root),
+    )
 
 
 def _scan_history() -> int:

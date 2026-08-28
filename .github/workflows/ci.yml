@@ -73,6 +73,7 @@ jobs:
       - run: python -m build --no-isolation --outdir dist
         env:
           SOURCE_DATE_EPOCH: "1704067200"
+      - run: python -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-runtime.lock --dest dist
       - run: python tools/check_installed_wheel.py dist/locpipe-0.1.0b1-py3-none-any.whl
       - run: cyclonedx-py requirements requirements-runtime.lock --output-format JSON --output-file dist/sbom.cdx.json
       - run: python tools/write_release_metadata.py dist
