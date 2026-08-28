@@ -51,6 +51,7 @@ from ._serialization import (
     parse_fluency_correction_trigger_v0,
 )
 from ._terminal import bind_fluency_correction_terminal_v0
+from ._bridge import build_fluency_content_validation_job_v0
 
 
 __all__ = [
@@ -85,6 +86,7 @@ __all__ = [
     "bind_fluency_correction_terminal_v0",
     "bind_fluency_submission_receipt_v0",
     "build_fluency_editorial_correction_v0",
+    "build_fluency_content_validation_job_v0",
     "build_fluency_recheck_job_v0",
     "build_fluency_review_job_v0",
     "fluency_submission_digest_v0",
