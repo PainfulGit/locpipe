@@ -2,8 +2,8 @@
 
 Before changing code:
 
-1. Read `README.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md` and the relevant
-   versioned facade.
+1. Read `README.md`, `docs/ARCHITECTURE.md`, root `SECURITY.md`,
+   `docs/SECURITY_MODEL.md` and the relevant versioned facade.
 2. Run `python -m unittest discover -s tests -p "test_*.py"`.
 3. Run `locpipe-demo` from an installed wheel for package-facing changes.
 

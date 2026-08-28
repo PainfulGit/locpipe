@@ -15,11 +15,32 @@ def main() -> int:
         root = Path(directory)
         subprocess.run((sys.executable, "-m", "venv", str(root / "venv")), check=True)
         python = root / "venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
-        subprocess.run((str(python), "-m", "pip", "install", "--disable-pip-version-check", str(wheel)), check=True)
-        completed = subprocess.run((str(python), "-m", "locpipe.demo"), check=True, capture_output=True, text=True, cwd=root)
+        subprocess.run((
+            str(python), "-m", "pip", "install", "--disable-pip-version-check",
+            "--no-index", "--find-links", str(wheel.parent), str(wheel),
+        ), check=True)
+        origin_check = subprocess.run((
+            str(python), "-I", "-c",
+            "import json,locpipe,pathlib;print(json.dumps({'origin':str(pathlib.Path(locpipe.__file__).resolve())}))",
+        ), check=True, capture_output=True, text=True, cwd=root)
+        origin = Path(json.loads(origin_check.stdout.strip().splitlines()[-1])["origin"]).resolve()
+        if not origin.is_relative_to((root / "venv").resolve()):
+            raise SystemExit("installed wheel import escaped the temporary environment")
+        completed = subprocess.run(
+            (str(python), "-I", "-m", "locpipe.demo"),
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=root,
+        )
         payload = json.loads(completed.stdout.strip().splitlines()[-1])
-        if payload.get("terminal_state") != "CONTENT_VERIFIED" or payload.get("demo") != "PASS":
-            raise SystemExit("installed wheel demo did not reach CONTENT_VERIFIED")
+        if (
+            payload.get("terminal_state") != "CONTENT_VERIFIED"
+            or payload.get("demo") != "PASS"
+            or payload.get("fluency_lifecycles") != 2
+            or payload.get("fluency_provenance_paths") != ["CORRECTION_TERMINAL", "INITIAL_STATE"]
+        ):
+            raise SystemExit("installed wheel demo did not prove both fluency validation paths")
     print(json.dumps({"status": "PASS", "wheel": wheel.name, "terminal_state": "CONTENT_VERIFIED"}, sort_keys=True))
     return 0
 

@@ -12,12 +12,19 @@ privileged delivery hooks, network providers or a full orchestration CLI.
 
 ```bash
 python -m venv .venv
-python -m pip install dist/locpipe-0.1.0b1-py3-none-any.whl
+python -m build --no-isolation --outdir dist
+python -m pip install "dist/locpipe-<version>-py3-none-any.whl"
 locpipe-demo
 ```
 
-The demo uses invented content, performs no network or installation work and
-prints only states, counts and hashes.
+Replace `<version>` with the exact fresh wheel filename produced from this
+checkout. The historical `0.1.0b1` wheel is the released baseline and does not
+contain the unreleased fluency lifecycle described below.
+
+The demo uses invented content, performs no network or game installation work
+and prints only states, counts and hashes. It exercises both a no-findings
+target-only fluency review and one bounded accuracy correction plus target-only
+recheck before the existing validation path reaches `CONTENT_VERIFIED`.
 
 Developers should start with [the architecture](docs/ARCHITECTURE.md), then
 read [the adapter guide](docs/ADAPTER_GUIDE.md) and
@@ -33,3 +40,10 @@ read [the adapter guide](docs/ADAPTER_GUIDE.md) and
 
 Incompatible wire changes use a new versioned contract surface. Frozen v0
 artifacts are never rewritten in place.
+
+Target-only fluency review is additive. Every requested target ID receives an
+explicit outcome, findings cannot replace target bytes, correction is performed
+only through the existing source-aware editorial overlay, and a finite policy
+prevents automatic retry loops. The synthetic demo is package evidence, not a
+claim about provider quality, project language policy, game integration or
+release readiness.
