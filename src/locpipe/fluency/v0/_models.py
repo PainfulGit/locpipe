@@ -6,11 +6,13 @@ from typing import Any
 import unicodedata
 
 from locpipe.contracts.v0 import (
+    BranchIdentity,
     Capability,
     ContractViolation,
     ErrorCode,
     ModuleDescriptorV0,
     canonical_json_bytes,
+    display_id,
     normalized_text,
     parse_canonical_json,
     raw_sha256,
@@ -594,6 +596,150 @@ class FluencyStateV0:
             "decision_sha256": self.decision_sha256,
             "status": self.status.value,
         }
+
+
+@dataclass(frozen=True)
+class FluencyCorrectionTriggerEntryV0:
+    target_stable_id: str
+    target_sha256: str
+    source_identity: BranchIdentity
+    source_revision_sha256: str
+    content_type: str
+    findings: tuple[FluencyFindingV0, ...]
+
+    def __post_init__(self) -> None:
+        _nonempty(self.target_stable_id, "Fluency correction target stable ID")
+        _sha(self.target_sha256, "Fluency correction target SHA")
+        if not isinstance(self.source_identity, BranchIdentity):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction source identity is invalid")
+        _sha(self.source_revision_sha256, "Fluency correction source revision SHA")
+        _nonempty(self.content_type, "Fluency correction content type")
+        findings = tuple(self.findings)
+        if not findings or any(not isinstance(row, FluencyFindingV0) for row in findings):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction findings are invalid")
+        identities = tuple(row.identity for row in findings)
+        if identities != tuple(sorted(identities)) or len(identities) != len(set(identities)):
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency correction findings must be unique and sorted")
+        object.__setattr__(self, "findings", findings)
+
+    @property
+    def source_stable_id(self) -> str:
+        return display_id(self.source_identity)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "target_stable_id": self.target_stable_id,
+            "target_sha256": self.target_sha256,
+            "source_identity": self.source_identity.as_dict(),
+            "source_revision_sha256": self.source_revision_sha256,
+            "content_type": self.content_type,
+            "findings": [row.as_dict() for row in self.findings],
+        }
+
+
+@dataclass(frozen=True)
+class FluencyCorrectionTriggerV0:
+    plan_sha256: str
+    fluency_job_sha256: str
+    fluency_packet_sha256: str
+    candidate_sha256: str
+    candidate_authority_sha256: str
+    content_config_digest: str
+    effective_snapshot_sha256: str
+    accuracy_provider_config_digest: str
+    fluency_provider_config_digest: str
+    raw_output_sha256: str
+    submission_sha256: str
+    decision_sha256: str
+    state_sha256: str
+    current_fluency_round: int
+    max_fluency_correction_rounds: int
+    parent_editorial_round: int
+    next_editorial_round: int
+    editorial_policy_sha256: str
+    entries: tuple[FluencyCorrectionTriggerEntryV0, ...]
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.plan_sha256, "Fluency correction plan SHA"),
+            (self.fluency_job_sha256, "Fluency correction job SHA"),
+            (self.fluency_packet_sha256, "Fluency correction packet SHA"),
+            (self.candidate_sha256, "Fluency correction candidate SHA"),
+            (self.candidate_authority_sha256, "Fluency correction candidate authority SHA"),
+            (self.content_config_digest, "Fluency correction config digest"),
+            (self.effective_snapshot_sha256, "Fluency correction snapshot SHA"),
+            (self.accuracy_provider_config_digest, "Fluency correction accuracy provider digest"),
+            (self.fluency_provider_config_digest, "Fluency correction reviewer provider digest"),
+            (self.raw_output_sha256, "Fluency correction raw output SHA"),
+            (self.submission_sha256, "Fluency correction submission SHA"),
+            (self.decision_sha256, "Fluency correction decision SHA"),
+            (self.state_sha256, "Fluency correction state SHA"),
+            (self.editorial_policy_sha256, "Fluency correction policy SHA"),
+        ):
+            _sha(value, name)
+        values = (
+            self.current_fluency_round,
+            self.max_fluency_correction_rounds,
+            self.parent_editorial_round,
+            self.next_editorial_round,
+        )
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency correction rounds are invalid")
+        if (
+            not 0 <= self.current_fluency_round < self.max_fluency_correction_rounds <= 2
+            or self.parent_editorial_round < 0
+            or self.next_editorial_round != self.parent_editorial_round + 1
+        ):
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency correction round bindings drift")
+        entries = tuple(self.entries)
+        keys = tuple(row.target_stable_id for row in entries)
+        if (
+            not entries
+            or any(not isinstance(row, FluencyCorrectionTriggerEntryV0) for row in entries)
+            or keys != tuple(sorted(keys))
+            or len(keys) != len(set(keys))
+        ):
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency correction entries must be non-empty, unique and sorted")
+        source_ids = tuple(row.source_stable_id for row in entries)
+        if len(source_ids) != len(set(source_ids)):
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency correction source mapping is ambiguous")
+        object.__setattr__(self, "entries", entries)
+
+    @property
+    def affected_target_ids(self) -> tuple[str, ...]:
+        return tuple(row.target_stable_id for row in self.entries)
+
+    @property
+    def requested_source_ids(self) -> tuple[str, ...]:
+        return tuple(sorted(row.source_stable_id for row in self.entries))
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract": "locpipe.fluency.correction-trigger/v0",
+            "plan_sha256": self.plan_sha256,
+            "fluency_job_sha256": self.fluency_job_sha256,
+            "fluency_packet_sha256": self.fluency_packet_sha256,
+            "candidate_sha256": self.candidate_sha256,
+            "candidate_authority_sha256": self.candidate_authority_sha256,
+            "content_config_digest": self.content_config_digest,
+            "effective_snapshot_sha256": self.effective_snapshot_sha256,
+            "accuracy_provider_config_digest": self.accuracy_provider_config_digest,
+            "fluency_provider_config_digest": self.fluency_provider_config_digest,
+            "raw_output_sha256": self.raw_output_sha256,
+            "submission_sha256": self.submission_sha256,
+            "decision_sha256": self.decision_sha256,
+            "state_sha256": self.state_sha256,
+            "current_fluency_round": self.current_fluency_round,
+            "max_fluency_correction_rounds": self.max_fluency_correction_rounds,
+            "parent_editorial_round": self.parent_editorial_round,
+            "next_editorial_round": self.next_editorial_round,
+            "editorial_policy_sha256": self.editorial_policy_sha256,
+            "entries": [row.as_dict() for row in self.entries],
+        }
+
+    @property
+    def digest(self) -> str:
+        return raw_sha256(canonical_json_bytes(self.as_dict()))
 
 
 def candidate_raw_sha(candidate: object) -> str:

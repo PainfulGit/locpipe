@@ -4,10 +4,8 @@ from collections.abc import Mapping
 from pathlib import Path
 import posixpath
 
-from locpipe.content.v0 import ScopeRoleV0
 from locpipe.contracts.v0 import (
     ArtifactDeclarationV0,
-    BranchIdentity,
     Capability,
     ContractViolation,
     ErrorCode,
@@ -17,18 +15,14 @@ from locpipe.contracts.v0 import (
     OperationHandlerV0,
     OperationRequestV0,
     canonical_json_bytes,
-    display_id,
     parse_canonical_json,
     raw_sha256,
     semantic_sha256,
 )
 from locpipe.editorial.v0 import (
-    OUTPUT_CONTRACT_SHA256,
-    ROLE_CONTRACT_SHA256,
     EditorialCandidateSetV0,
     EditorialJobStatusV0,
     EditorialJobV0,
-    EditorialPacketRowV0,
     EditorialPacketV0,
     EditorialPolicyV0,
     EditorialSubmissionReceiptV0,
@@ -42,7 +36,10 @@ from locpipe.editorial.v0 import (
     received_editorial_artifacts_v0,
 )
 from locpipe.editorial.v0._models import candidate_raw_sha
-from locpipe.editorial.v0._packet import _validate_translation_authority
+from locpipe.editorial.v0._packet import (
+    _build_triggered_editorial_job_v0,
+    _validate_translation_authority,
+)
 from locpipe.kernel.v0.config import ResolvedConfigV0, validate_context_config_binding
 from locpipe.kernel.v0.context import ProjectContextV0
 from locpipe.translation.v0 import (
@@ -184,60 +181,23 @@ def build_validation_editorial_rework_v0(
         validation_job, parent_candidate, parent_evidence,
         validation_report_bytes, validation_state_bytes, validation_rework_bytes,
     )
-    targets = {}
-    for payload in parent_candidate._target_bytes:
-        identity = BranchIdentity.from_dict(parse_canonical_json(payload)["data"]["identity"])
-        targets[(identity.logical_id, identity.selector_path)] = payload
-    packet_rows = []
-    for row in translation_packet.rows:
-        target = targets.get((row.identity.logical_id, row.identity.selector_path)) if row.role is ScopeRoleV0.OWNED else None
-        packet_rows.append(EditorialPacketRowV0(
-            row.identity, row.role, row.source_revision_sha, row.content_type,
-            row._payload_bytes, row._constraints_bytes, target,
-        ))
-    packet = EditorialPacketV0(
-        translation_job.target_locale,
-        next_round,
-        requested,
-        tuple(sorted(packet_rows, key=lambda row: row.stable_id)),
-        translation_packet._relation_bytes,
-    )
     trigger_bytes = canonical_json_bytes(trigger)
-    packet_sha = raw_sha256(canonical_json_bytes(packet.as_dict()))
-    identity = {
-        "context_digest": context.context_digest,
-        "translation_job_id": translation_job.job_id,
-        "translation_decision_sha256": raw_sha256(translation_decision_bytes),
-        "translation_state_sha256": raw_sha256(translation_state_bytes),
-        "base_target_set_sha256": parent_candidate.base_target_set_sha256,
-        "parent_candidate_sha256": candidate_raw_sha(parent_candidate),
-        "validation_trigger_sha256": raw_sha256(trigger_bytes),
-        "scope_sha256": translation_job.scope_sha256,
-        "source_lock_sha256": translation_job.source_lock_sha256,
-        "reconciliation_sha256": translation_job.reconciliation_sha256,
-        "content_config_digest": resolved.content_config_digest,
-        "effective_snapshot_sha256": resolved.effective_snapshot_sha256,
-        "module": {"capability": module.capability.value, "module_id": module.module_id, "version": module.version, "digest": module.digest},
-        "provider": provider.as_dict(),
-        "target_locale": translation_job.target_locale,
-        "packet_sha256": packet_sha,
-        "policy_sha256": policy.digest,
-        "role_contract_sha256": ROLE_CONTRACT_SHA256,
-        "output_contract_sha256": OUTPUT_CONTRACT_SHA256,
-        "budget": budget.as_dict(),
-        "round_index": next_round,
-        "max_invocations": 1,
-    }
-    job_id = "editorial-" + semantic_sha256({"kind": "validation-origin-job", **identity})[:32]
-    invocation_id = "invocation-" + semantic_sha256({"job_id": job_id, "provider": provider.as_dict(), "round": next_round})[:32]
-    job = EditorialJobV0(
-        job_id, invocation_id, context.context_digest, translation_job.job_id,
-        raw_sha256(translation_decision_bytes), raw_sha256(translation_state_bytes),
-        parent_candidate.base_target_set_sha256, candidate_raw_sha(parent_candidate),
-        raw_sha256(trigger_bytes), translation_job.scope_sha256, translation_job.source_lock_sha256,
-        translation_job.reconciliation_sha256, resolved.content_config_digest, resolved.effective_snapshot_sha256,
-        module, provider, translation_job.target_locale, packet_sha, policy.digest,
-        ROLE_CONTRACT_SHA256, OUTPUT_CONTRACT_SHA256, budget, next_round,
+    job, packet = _build_triggered_editorial_job_v0(
+        context,
+        resolved,
+        translation_job,
+        translation_packet,
+        translation_decision_bytes,
+        translation_state_bytes,
+        parent_candidate,
+        policy,
+        module,
+        provider,
+        requested_ids=requested,
+        round_index=next_round,
+        trigger_bytes=trigger_bytes,
+        origin_domain="validation",
+        budget=budget,
     )
     return job, packet, trigger_bytes
 
