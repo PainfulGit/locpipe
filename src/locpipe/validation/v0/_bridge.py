@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 import posixpath
 
 from locpipe.contracts.v0 import (
@@ -30,11 +29,10 @@ from locpipe.editorial.v0 import (
     editorial_bindings_from_config_v0,
     editorial_job_root_v0,
     editorial_submission_archive_artifacts_v0,
-    editorial_submission_digest_v0,
-    editorial_terminal_artifacts_v0,
     prepared_editorial_artifacts_v0,
     received_editorial_artifacts_v0,
 )
+from locpipe.editorial.v0._acceptance import _execute_triggered_editorial_acceptance_v0
 from locpipe.editorial.v0._models import candidate_raw_sha
 from locpipe.editorial.v0._packet import (
     _build_triggered_editorial_job_v0,
@@ -307,36 +305,28 @@ def bind_validation_editorial_acceptance_v0(
 
     def handler(request: OperationRequestV0, operation_context: OperationContextV0) -> ErrorRecord | None:
         try:
-            if request.capability is not Capability.EDITORIAL_REVIEW:
-                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation editorial handler received wrong capability")
-            if request.declared_outputs != editorial_acceptance_output_declarations_v0(expected_job):
-                raise ContractViolation(ErrorCode.OUTPUT_CONTRACT_VIOLATION, "Validation editorial output contract drift")
-            if tuple(row.path for row in request.inputs) != tuple(path for path, _payload in expected_inputs):
-                raise ContractViolation(ErrorCode.OUTPUT_CONTRACT_VIOLATION, "Validation editorial input contract drift")
-            for relative, payload in expected_inputs:
-                if (operation_context.input_root / Path(*relative.split("/"))).read_bytes() != payload:
-                    raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation editorial input authority drift")
-            if editorial_submission_digest_v0(receipt) != parse_canonical_json(
-                dict(expected_inputs)[posixpath.join(editorial_job_root_v0(expected_job), "state.json")]
-            ).get("selected_submission_sha256"):
-                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation editorial submission selection drift")
-            rebuilt_job, rebuilt_packet, rebuilt_trigger = build_validation_editorial_rework_v0(
+            rebuilt_authority = build_validation_editorial_rework_v0(
                 context, resolved, translation_job, translation_packet, translation_decision_bytes,
                 translation_state_bytes, target_set, policy, parent_candidate, parent_evidence,
                 parent_editorial_job, parent_editorial_packet, validation_job, validation_packet,
                 validation_report_bytes, validation_state_bytes, validation_rework_bytes,
                 budget=expected_job.budget,
             )
-            if (rebuilt_job, rebuilt_packet, rebuilt_trigger) != (expected_job, expected_packet, trigger_bytes):
-                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation editorial runtime rebuild drift")
-            for relative, payload in editorial_terminal_artifacts_v0(
-                expected_job, expected_packet, policy, parent_candidate, receipt, raw_output,
-            ):
-                output = operation_context.staging_root / Path(*relative.split("/"))
-                output.parent.mkdir(parents=True, exist_ok=True)
-                output.write_bytes(payload)
-            return None
         except ContractViolation as error:
             return error.as_record()
+        return _execute_triggered_editorial_acceptance_v0(
+            request,
+            operation_context,
+            origin_domain="validation",
+            expected_job=expected_job,
+            expected_packet=expected_packet,
+            expected_policy=policy,
+            expected_parent=parent_candidate,
+            expected_inputs=expected_inputs,
+            receipt=receipt,
+            raw_output=raw_output,
+            rebuilt_authority=rebuilt_authority,
+            expected_trigger_bytes=trigger_bytes,
+        )
 
     return implementation, handler

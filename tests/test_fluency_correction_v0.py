@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import sys
+import tempfile
 import unittest
 from copy import deepcopy
 from dataclasses import replace
@@ -13,10 +14,14 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 from locpipe.contracts.v0 import (  # noqa: E402
+    ArtifactHashV0,
     BranchIdentity,
+    Capability,
     ContractViolation,
+    OperationRequestV0,
     canonical_json_bytes,
     display_id,
+    execute_bound_operation,
     parse_canonical_json,
     raw_sha256,
     semantic_sha256,
@@ -26,6 +31,7 @@ from locpipe.editorial.v0 import (  # noqa: E402
     EditorialPolicyV0,
     EditorialSubmissionReceiptV0,
     build_editorial_job_v0,
+    editorial_acceptance_output_declarations_v0,
     editorial_job_root_v0,
     editorial_terminal_artifacts_v0,
     parse_editorial_candidate_v0,
@@ -36,9 +42,13 @@ from locpipe.fluency.v0 import (  # noqa: E402
     FluencyTargetProjectionRowV0,
     FluencyTargetProjectionV0,
     accept_fluency_submission_v0,
+    bind_fluency_accuracy_acceptance_v0,
     bind_fluency_submission_receipt_v0,
     build_fluency_editorial_correction_v0,
     build_fluency_review_job_v0,
+    fluency_accuracy_acceptance_inputs_v0,
+    fluency_accuracy_provider_inputs_v0,
+    fluency_correction_trigger_path_v0,
     parse_fluency_correction_trigger_v0,
 )
 from locpipe.translation.v0 import (  # noqa: E402
@@ -48,6 +58,8 @@ from locpipe.translation.v0 import (  # noqa: E402
 )
 from tests.test_editorial_acceptance_v0 import editorial_output  # noqa: E402
 from tests.test_editorial_packet_v0 import accepted_fixture, editorial_layers  # noqa: E402
+from tests.test_translation_acceptance_v0 import binding  # noqa: E402
+from tests.conformance.adapter_v0.flat_adapter import SyntheticFlatAdapterV0  # noqa: E402
 
 
 FLUENCY_PROVIDER_SHA = "d" * 64
@@ -261,6 +273,189 @@ class FluencyCorrectionV0Tests(unittest.TestCase):
         signature = inspect.signature(build_fluency_editorial_correction_v0)
         for forbidden in ("root", "path", "publisher", "overlay", "replacement"):
             self.assertNotIn(forbidden, signature.parameters)
+
+    def test_accuracy_provider_bundle_and_acceptance_are_exact_bound(self) -> None:
+        fixture = correction_fixture()
+        job, packet, trigger_bytes = build_correction(fixture)
+        trigger = parse_fluency_correction_trigger_v0(trigger_bytes)
+        provider_inputs = fluency_accuracy_provider_inputs_v0(
+            fixture["resolved"], job, packet, fixture["policy"], fixture["candidate"], trigger_bytes,
+        )
+        provider_rows = dict(provider_inputs)
+        trigger_path = fluency_correction_trigger_path_v0(trigger)
+        self.assertEqual(trigger_bytes, provider_rows[trigger_path])
+        self.assertEqual(raw_sha256(trigger_bytes), job.parent_decision_sha256)
+        self.assertNotIn(b"diagnostic_note", canonical_json_bytes(packet.as_dict()))
+        self.assertIn(b"diagnostic_note", provider_rows[trigger_path])
+
+        raw_accuracy = editorial_output(job, packet)
+        receipt = EditorialSubmissionReceiptV0(
+            job.job_id,
+            job.invocation_id,
+            job.provider,
+            "fluency-accuracy",
+            job.packet_sha256,
+            job.output_contract_sha256,
+            raw_sha256(raw_accuracy),
+        )
+        inputs_rows = fluency_accuracy_acceptance_inputs_v0(
+            fixture["resolved"], fixture["translation_job"], fixture["translation_packet"],
+            fixture["translation_decision_bytes"], fixture["translation_state_bytes"],
+            fixture["target_set"], job, packet, fixture["policy"], fixture["candidate"],
+            fixture["candidate_evidence"], fixture["plan"], fixture["fluency_job"],
+            fixture["fluency_packet"], fixture["receipt_bytes"], fixture["raw_fluency"],
+            fixture["decision"], fixture["state"], trigger_bytes, receipt, raw_accuracy,
+        )
+        implementation, handler = bind_fluency_accuracy_acceptance_v0(
+            fixture["context"], fixture["resolved"], fixture["translation_job"],
+            fixture["translation_packet"], fixture["translation_decision_bytes"],
+            fixture["translation_state_bytes"], fixture["target_set"], fixture["policy"],
+            fixture["candidate"], fixture["candidate_evidence"], fixture["parent_job"],
+            fixture["parent_packet"], fixture["plan"], fixture["fluency_job"],
+            fixture["fluency_packet"], fixture["receipt_bytes"], fixture["raw_fluency"],
+            fixture["decision"], fixture["state"], job, packet, trigger_bytes, receipt, raw_accuracy,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            inputs = temp / "inputs"
+            staging = temp / "staging"
+            inputs.mkdir()
+            staging.mkdir()
+            for relative, payload in inputs_rows:
+                path = inputs / Path(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            module_binding = binding(SyntheticFlatAdapterV0(), job.module)
+            request = OperationRequestV0(
+                "fluency-accuracy-acceptance",
+                Capability.EDITORIAL_REVIEW,
+                semantic_sha256(module_binding),
+                tuple(ArtifactHashV0(path, "raw", raw_sha256(payload)) for path, payload in inputs_rows),
+                editorial_acceptance_output_declarations_v0(job),
+            )
+            result = execute_bound_operation(
+                request.as_envelope(), module_binding, handlers={implementation: handler},
+                input_root=inputs, staging_root=staging,
+            )
+            self.assertEqual("PASS", result["data"]["status"])
+            for declaration in editorial_acceptance_output_declarations_v0(job):
+                self.assertTrue((staging / Path(*declaration.path.split("/"))).is_file())
+
+    def test_provider_bundle_rejects_identity_drift_with_same_config_digest(self) -> None:
+        fixture = correction_fixture()
+        job, packet, trigger_bytes = build_correction(fixture)
+        drifted_job = replace(
+            job,
+            provider=replace(job.provider, provider_id="foreign-accuracy-provider"),
+        )
+        self.assertEqual(job.provider.config_digest, drifted_job.provider.config_digest)
+        with self.assertRaisesRegex(ContractViolation, "provider input authority drift"):
+            fluency_accuracy_provider_inputs_v0(
+                fixture["resolved"], drifted_job, packet, fixture["policy"],
+                fixture["candidate"], trigger_bytes,
+            )
+
+    def test_accuracy_transport_rejects_trigger_receipt_and_declared_input_drift(self) -> None:
+        fixture = correction_fixture()
+        job, packet, trigger_bytes = build_correction(fixture)
+        raw_accuracy = editorial_output(job, packet)
+        receipt = EditorialSubmissionReceiptV0(
+            job.job_id, job.invocation_id, job.provider, "fluency-accuracy",
+            job.packet_sha256, job.output_contract_sha256, raw_sha256(raw_accuracy),
+        )
+        forged_trigger = parse_canonical_json(trigger_bytes)
+        forged_trigger["accuracy_provider_config_digest"] = "0" * 64
+        with self.assertRaises(ContractViolation):
+            fluency_accuracy_provider_inputs_v0(
+                fixture["resolved"], job, packet, fixture["policy"], fixture["candidate"],
+                canonical_json_bytes(forged_trigger),
+            )
+        foreign_receipt = EditorialSubmissionReceiptV0(
+            job.job_id, job.invocation_id, job.provider, "fluency-accuracy",
+            job.packet_sha256, job.output_contract_sha256, "0" * 64,
+        )
+        with self.assertRaises(ContractViolation):
+            fluency_accuracy_acceptance_inputs_v0(
+                fixture["resolved"], fixture["translation_job"], fixture["translation_packet"],
+                fixture["translation_decision_bytes"], fixture["translation_state_bytes"],
+                fixture["target_set"], job, packet, fixture["policy"], fixture["candidate"],
+                fixture["candidate_evidence"], fixture["plan"], fixture["fluency_job"],
+                fixture["fluency_packet"], fixture["receipt_bytes"], fixture["raw_fluency"],
+                fixture["decision"], fixture["state"], trigger_bytes, foreign_receipt, raw_accuracy,
+            )
+        with self.assertRaises(ContractViolation):
+            fluency_accuracy_acceptance_inputs_v0(
+                fixture["resolved"], fixture["translation_job"], fixture["translation_packet"],
+                fixture["translation_decision_bytes"], fixture["translation_state_bytes"],
+                fixture["target_set"], job, packet, fixture["policy"], fixture["candidate"],
+                fixture["candidate_evidence"], fixture["plan"], fixture["fluency_job"],
+                fixture["fluency_packet"], fixture["receipt_bytes"], fixture["raw_fluency"],
+                fixture["decision"], fixture["state"], trigger_bytes, receipt, raw_accuracy + b" ",
+            )
+
+        inputs_rows = fluency_accuracy_acceptance_inputs_v0(
+            fixture["resolved"], fixture["translation_job"], fixture["translation_packet"],
+            fixture["translation_decision_bytes"], fixture["translation_state_bytes"],
+            fixture["target_set"], job, packet, fixture["policy"], fixture["candidate"],
+            fixture["candidate_evidence"], fixture["plan"], fixture["fluency_job"],
+            fixture["fluency_packet"], fixture["receipt_bytes"], fixture["raw_fluency"],
+            fixture["decision"], fixture["state"], trigger_bytes, receipt, raw_accuracy,
+        )
+        implementation, handler = bind_fluency_accuracy_acceptance_v0(
+            fixture["context"], fixture["resolved"], fixture["translation_job"],
+            fixture["translation_packet"], fixture["translation_decision_bytes"],
+            fixture["translation_state_bytes"], fixture["target_set"], fixture["policy"],
+            fixture["candidate"], fixture["candidate_evidence"], fixture["parent_job"],
+            fixture["parent_packet"], fixture["plan"], fixture["fluency_job"],
+            fixture["fluency_packet"], fixture["receipt_bytes"], fixture["raw_fluency"],
+            fixture["decision"], fixture["state"], job, packet, trigger_bytes, receipt, raw_accuracy,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            temp = Path(directory)
+            inputs = temp / "inputs"
+            staging = temp / "staging"
+            inputs.mkdir()
+            staging.mkdir()
+            for relative, payload in inputs_rows:
+                path = inputs / Path(*relative.split("/"))
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(payload)
+            module_binding = binding(SyntheticFlatAdapterV0(), job.module)
+            trigger_path = fluency_correction_trigger_path_v0(
+                parse_fluency_correction_trigger_v0(trigger_bytes)
+            )
+            missing = tuple(row for row in inputs_rows if row[0] != trigger_path)
+            request = OperationRequestV0(
+                "fluency-accuracy-missing-input",
+                Capability.EDITORIAL_REVIEW,
+                semantic_sha256(module_binding),
+                tuple(ArtifactHashV0(path, "raw", raw_sha256(payload)) for path, payload in missing),
+                editorial_acceptance_output_declarations_v0(job),
+            )
+            result = execute_bound_operation(
+                request.as_envelope(), module_binding, handlers={implementation: handler},
+                input_root=inputs, staging_root=staging,
+            )
+            self.assertEqual("FAIL", result["data"]["status"])
+            self.assertEqual([], list(staging.rglob("*")))
+            extra_path = "fl/c/foreign/trigger.json"
+            extra_file = inputs / Path(*extra_path.split("/"))
+            extra_file.parent.mkdir(parents=True, exist_ok=True)
+            extra_file.write_bytes(trigger_bytes)
+            extra = tuple(sorted((*inputs_rows, (extra_path, trigger_bytes))))
+            request = OperationRequestV0(
+                "fluency-accuracy-extra-input",
+                Capability.EDITORIAL_REVIEW,
+                semantic_sha256(module_binding),
+                tuple(ArtifactHashV0(path, "raw", raw_sha256(payload)) for path, payload in extra),
+                editorial_acceptance_output_declarations_v0(job),
+            )
+            result = execute_bound_operation(
+                request.as_envelope(), module_binding, handlers={implementation: handler},
+                input_root=inputs, staging_root=staging,
+            )
+            self.assertEqual("FAIL", result["data"]["status"])
+            self.assertEqual([], list(staging.rglob("*")))
 
     def test_stale_fluency_candidate_config_provider_and_evidence_fail_closed(self) -> None:
         fixture = correction_fixture()
