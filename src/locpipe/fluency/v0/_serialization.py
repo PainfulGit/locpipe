@@ -22,6 +22,56 @@ GUIDANCE_ORIGINS = frozenset({"target_policy", "target_profile"})
 GUIDANCE_KINDS = frozenset({"layout", "style", "terminology", "voice"})
 
 
+def _canonical_mapping(payload: bytes, fields: set[str], name: str) -> Mapping[str, Any]:
+    if not isinstance(payload, bytes):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, f"{name} must be canonical bytes")
+    value = parse_canonical_json(payload)
+    if canonical_json_bytes(value) != payload:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, f"{name} is not canonical")
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, f"{name} fields are invalid")
+    return value
+
+
+def canonical_fluency_provider_output_v0(payload: bytes) -> Mapping[str, Any]:
+    value = _canonical_mapping(payload, {
+        "contract", "job_id", "invocation_id", "plan_sha256", "packet_sha256",
+        "provider", "output_contract_sha256", "reviews",
+    }, "Fluency provider output")
+    if value["contract"] != "locpipe.fluency.provider-output/v0":
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency provider output contract is invalid")
+    provider = value["provider"]
+    if not isinstance(provider, Mapping) or set(provider) != {"role", "provider_id", "version", "config_digest"}:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency provider binding fields are invalid")
+    reviews = value["reviews"]
+    if not isinstance(reviews, list):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency provider reviews must be a list")
+    for review in reviews:
+        if not isinstance(review, Mapping) or set(review) != {"stable_id", "outcome", "findings"}:
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency provider review fields are invalid")
+        findings = review["findings"]
+        if not isinstance(findings, list):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency provider findings must be a list")
+        for finding in findings:
+            if not isinstance(finding, Mapping) or set(finding) != {"category", "diagnostic_note"}:
+                raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency provider finding fields are invalid")
+    return value
+
+
+def canonical_fluency_submission_receipt_v0(payload: bytes) -> Mapping[str, Any]:
+    value = _canonical_mapping(payload, {
+        "contract", "job_id", "invocation_id", "provider", "provider_request_id",
+        "plan_sha256", "packet_sha256", "role_contract_sha256",
+        "output_contract_sha256", "raw_output_sha256",
+    }, "Fluency submission receipt")
+    if value["contract"] != "locpipe.fluency.submission-receipt/v0":
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency submission receipt contract is invalid")
+    provider = value["provider"]
+    if not isinstance(provider, Mapping) or set(provider) != {"role", "provider_id", "version", "config_digest"}:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency receipt provider fields are invalid")
+    return value
+
+
 def canonical_target_v0(payload: bytes, target_locale: str | None) -> tuple[str, Mapping[str, Any]]:
     if not isinstance(payload, bytes):
         raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency target must be canonical bytes")
