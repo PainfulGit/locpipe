@@ -20,6 +20,7 @@ from locpipe.contracts.v0 import (
     strict_loads,
 )
 from locpipe.contracts.v0.profiles import SHA256_RE
+from locpipe.editorial.v0 import EditorialActionV0
 from locpipe.translation.v0 import ProviderBindingV0, ProviderBudgetV0
 
 from ._serialization import canonical_guidance_block_v0, canonical_target_v0
@@ -735,6 +736,140 @@ class FluencyCorrectionTriggerV0:
             "next_editorial_round": self.next_editorial_round,
             "editorial_policy_sha256": self.editorial_policy_sha256,
             "entries": [row.as_dict() for row in self.entries],
+        }
+
+    @property
+    def digest(self) -> str:
+        return raw_sha256(canonical_json_bytes(self.as_dict()))
+
+
+class FluencyAdjudicationStatusV0(str, Enum):
+    DISMISSALS_ONLY = "DISMISSALS_ONLY"
+    CORRECTIONS_READY_FOR_RECHECK = "CORRECTIONS_READY_FOR_RECHECK"
+
+
+_FLUENCY_KEEP_REASONS = frozenset({
+    "FLUENCY_DISMISSED_MEANING_CONSTRAINT",
+    "FLUENCY_DISMISSED_APPROVED_TERMINOLOGY",
+    "FLUENCY_DISMISSED_INTENTIONAL_VOICE_REGISTER",
+    "FLUENCY_DISMISSED_FALSE_POSITIVE",
+})
+_FLUENCY_CORRECT_REASON = "FLUENCY_FINDING_FIXED"
+
+
+@dataclass(frozen=True)
+class FluencyAdjudicationEntryV0:
+    target_stable_id: str
+    source_stable_id: str
+    finding_set_sha256: str
+    action: EditorialActionV0
+    reason_code: str
+    overlay_entry_sha256: str | None
+
+    def __post_init__(self) -> None:
+        _nonempty(self.target_stable_id, "Fluency adjudication target stable ID")
+        _nonempty(self.source_stable_id, "Fluency adjudication source stable ID")
+        _sha(self.finding_set_sha256, "Fluency adjudication finding-set SHA")
+        if not isinstance(self.action, EditorialActionV0):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication action is invalid")
+        _nonempty(self.reason_code, "Fluency adjudication reason code")
+        if self.overlay_entry_sha256 is not None:
+            _sha(self.overlay_entry_sha256, "Fluency adjudication overlay-entry SHA")
+        if self.action is EditorialActionV0.KEEP:
+            if self.reason_code not in _FLUENCY_KEEP_REASONS or self.overlay_entry_sha256 is not None:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency KEEP adjudication binding is invalid")
+        elif self.action is EditorialActionV0.CORRECT:
+            if self.reason_code != _FLUENCY_CORRECT_REASON or self.overlay_entry_sha256 is None:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency CORRECT adjudication binding is invalid")
+        else:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication action is forbidden")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "target_stable_id": self.target_stable_id,
+            "source_stable_id": self.source_stable_id,
+            "finding_set_sha256": self.finding_set_sha256,
+            "action": self.action.value,
+            "reason_code": self.reason_code,
+            "overlay_entry_sha256": self.overlay_entry_sha256,
+        }
+
+
+@dataclass(frozen=True)
+class FluencyAdjudicationV0:
+    trigger_sha256: str
+    editorial_job_sha256: str
+    editorial_packet_sha256: str
+    submission_receipt_sha256: str
+    raw_output_sha256: str
+    decision_set_sha256: str
+    overlay_sha256: str
+    resulting_candidate_sha256: str
+    editorial_state_sha256: str
+    entries: tuple[FluencyAdjudicationEntryV0, ...]
+    keep_ids: tuple[str, ...]
+    corrected_ids: tuple[str, ...]
+    status: FluencyAdjudicationStatusV0
+
+    def __post_init__(self) -> None:
+        for value, name in (
+            (self.trigger_sha256, "Fluency adjudication trigger SHA"),
+            (self.editorial_job_sha256, "Fluency adjudication editorial job SHA"),
+            (self.editorial_packet_sha256, "Fluency adjudication editorial packet SHA"),
+            (self.submission_receipt_sha256, "Fluency adjudication submission receipt SHA"),
+            (self.raw_output_sha256, "Fluency adjudication raw output SHA"),
+            (self.decision_set_sha256, "Fluency adjudication decision-set SHA"),
+            (self.overlay_sha256, "Fluency adjudication overlay SHA"),
+            (self.resulting_candidate_sha256, "Fluency adjudication candidate SHA"),
+            (self.editorial_state_sha256, "Fluency adjudication state SHA"),
+        ):
+            _sha(value, name)
+        entries = tuple(self.entries)
+        target_ids = tuple(row.target_stable_id for row in entries)
+        source_ids = tuple(row.source_stable_id for row in entries)
+        if (
+            not entries
+            or any(not isinstance(row, FluencyAdjudicationEntryV0) for row in entries)
+            or target_ids != tuple(sorted(target_ids))
+            or len(target_ids) != len(set(target_ids))
+            or len(source_ids) != len(set(source_ids))
+        ):
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency adjudication entries must be non-empty, unique and sorted")
+        keep_ids = _sorted_ids(self.keep_ids, "Fluency adjudication KEEP IDs")
+        corrected_ids = _sorted_ids(self.corrected_ids, "Fluency adjudication corrected IDs")
+        expected_keep = tuple(row.target_stable_id for row in entries if row.action is EditorialActionV0.KEEP)
+        expected_corrected = tuple(row.target_stable_id for row in entries if row.action is EditorialActionV0.CORRECT)
+        if keep_ids != expected_keep or corrected_ids != expected_corrected or set(keep_ids) & set(corrected_ids):
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication derived ID sets drift")
+        if tuple(sorted((*keep_ids, *corrected_ids))) != target_ids:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication coverage drift")
+        expected_status = (
+            FluencyAdjudicationStatusV0.CORRECTIONS_READY_FOR_RECHECK
+            if corrected_ids
+            else FluencyAdjudicationStatusV0.DISMISSALS_ONLY
+        )
+        if self.status is not expected_status:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication status drift")
+        object.__setattr__(self, "entries", entries)
+        object.__setattr__(self, "keep_ids", keep_ids)
+        object.__setattr__(self, "corrected_ids", corrected_ids)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "contract": "locpipe.fluency.adjudication/v0",
+            "trigger_sha256": self.trigger_sha256,
+            "editorial_job_sha256": self.editorial_job_sha256,
+            "editorial_packet_sha256": self.editorial_packet_sha256,
+            "submission_receipt_sha256": self.submission_receipt_sha256,
+            "raw_output_sha256": self.raw_output_sha256,
+            "decision_set_sha256": self.decision_set_sha256,
+            "overlay_sha256": self.overlay_sha256,
+            "resulting_candidate_sha256": self.resulting_candidate_sha256,
+            "editorial_state_sha256": self.editorial_state_sha256,
+            "entries": [row.as_dict() for row in self.entries],
+            "keep_ids": list(self.keep_ids),
+            "corrected_ids": list(self.corrected_ids),
+            "status": self.status.value,
         }
 
     @property
