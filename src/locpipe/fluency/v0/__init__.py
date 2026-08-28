@@ -1,6 +1,9 @@
 """Import-only facade for target-side fluency review packet construction v0."""
 
 from ._models import (
+    FluencyAdjudicationEntryV0,
+    FluencyAdjudicationStatusV0,
+    FluencyAdjudicationV0,
     FluencyCorrectionTriggerEntryV0,
     FluencyCorrectionTriggerV0,
     FluencyDecisionEntryV0,
@@ -20,6 +23,7 @@ from ._models import (
     MAX_DIAGNOSTIC_NOTE_CODEPOINTS,
 )
 from ._correction import (
+    accept_fluency_adjudication_v0,
     bind_fluency_accuracy_acceptance_v0,
     build_fluency_editorial_correction_v0,
     fluency_accuracy_acceptance_inputs_v0,
@@ -38,12 +42,15 @@ from ._packet import (
     build_fluency_review_job_v0,
     fluency_bindings_from_config_v0,
 )
-from ._serialization import parse_fluency_correction_trigger_v0
+from ._serialization import parse_fluency_adjudication_v0, parse_fluency_correction_trigger_v0
 
 
 __all__ = [
     "ACCURACY_ROLE_CONTRACT_SHA256",
     "FLUENCY_ROLE_CONTRACT_SHA256",
+    "FluencyAdjudicationEntryV0",
+    "FluencyAdjudicationStatusV0",
+    "FluencyAdjudicationV0",
     "FluencyCorrectionTriggerEntryV0",
     "FluencyCorrectionTriggerV0",
     "FluencyDecisionEntryV0",
@@ -62,6 +69,7 @@ __all__ = [
     "FluencyTargetProjectionV0",
     "MAX_DIAGNOSTIC_NOTE_CODEPOINTS",
     "OUTPUT_CONTRACT_SHA256",
+    "accept_fluency_adjudication_v0",
     "accept_fluency_submission_v0",
     "bind_fluency_accuracy_acceptance_v0",
     "bind_fluency_submission_receipt_v0",
@@ -73,4 +81,5 @@ __all__ = [
     "fluency_bindings_from_config_v0",
     "fluency_correction_trigger_path_v0",
     "parse_fluency_correction_trigger_v0",
+    "parse_fluency_adjudication_v0",
 ]

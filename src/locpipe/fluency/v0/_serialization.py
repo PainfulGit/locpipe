@@ -151,6 +151,65 @@ def parse_fluency_correction_trigger_v0(payload: bytes):
     return trigger
 
 
+def parse_fluency_adjudication_v0(payload: bytes):
+    value = _canonical_mapping(payload, {
+        "contract", "trigger_sha256", "editorial_job_sha256", "editorial_packet_sha256",
+        "submission_receipt_sha256", "raw_output_sha256", "decision_set_sha256",
+        "overlay_sha256", "resulting_candidate_sha256", "editorial_state_sha256",
+        "entries", "keep_ids", "corrected_ids", "status",
+    }, "Fluency adjudication")
+    if value["contract"] != "locpipe.fluency.adjudication/v0":
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication contract is invalid")
+    entries = value["entries"]
+    if not isinstance(entries, list) or not isinstance(value["keep_ids"], list) or not isinstance(value["corrected_ids"], list):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication collections are invalid")
+    from locpipe.editorial.v0 import EditorialActionV0
+    from ._models import (
+        FluencyAdjudicationEntryV0,
+        FluencyAdjudicationStatusV0,
+        FluencyAdjudicationV0,
+    )
+
+    parsed_entries = []
+    try:
+        for entry in entries:
+            if not isinstance(entry, Mapping) or set(entry) != {
+                "target_stable_id", "source_stable_id", "finding_set_sha256",
+                "action", "reason_code", "overlay_entry_sha256",
+            }:
+                raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication entry fields are invalid")
+            parsed_entries.append(FluencyAdjudicationEntryV0(
+                entry["target_stable_id"],
+                entry["source_stable_id"],
+                entry["finding_set_sha256"],
+                EditorialActionV0(entry["action"]),
+                entry["reason_code"],
+                entry["overlay_entry_sha256"],
+            ))
+        adjudication = FluencyAdjudicationV0(
+            value["trigger_sha256"],
+            value["editorial_job_sha256"],
+            value["editorial_packet_sha256"],
+            value["submission_receipt_sha256"],
+            value["raw_output_sha256"],
+            value["decision_set_sha256"],
+            value["overlay_sha256"],
+            value["resulting_candidate_sha256"],
+            value["editorial_state_sha256"],
+            tuple(parsed_entries),
+            tuple(value["keep_ids"]),
+            tuple(value["corrected_ids"]),
+            FluencyAdjudicationStatusV0(value["status"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        if isinstance(error, ContractViolation):
+            raise
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication value is invalid") from error
+    if canonical_json_bytes(adjudication.as_dict()) != payload:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication projection drift")
+    return adjudication
+
+
 def canonical_target_v0(payload: bytes, target_locale: str | None) -> tuple[str, Mapping[str, Any]]:
     if not isinstance(payload, bytes):
         raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency target must be canonical bytes")

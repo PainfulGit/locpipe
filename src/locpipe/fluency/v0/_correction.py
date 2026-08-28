@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import posixpath
+from collections.abc import Mapping
 
 from locpipe.content.v0 import ScopeRoleV0
 from locpipe.contracts.v0 import (
@@ -19,12 +20,17 @@ from locpipe.contracts.v0 import (
     raw_sha256,
 )
 from locpipe.editorial.v0 import (
+    EditorialActionV0,
     EditorialCandidateSetV0,
+    EditorialJobStatusV0,
     EditorialJobV0,
     EditorialPacketV0,
     EditorialPolicyV0,
     EditorialSubmissionReceiptV0,
+    editorial_job_root_v0,
     editorial_submission_archive_artifacts_v0,
+    editorial_terminal_artifacts_v0,
+    parse_editorial_candidate_v0,
     prepared_editorial_artifacts_v0,
     received_editorial_artifacts_v0,
 )
@@ -47,6 +53,9 @@ from locpipe.validation.v0._packet import _validate_candidate_authority
 
 from ._acceptance import accept_fluency_submission_v0
 from ._models import (
+    FluencyAdjudicationEntryV0,
+    FluencyAdjudicationStatusV0,
+    FluencyAdjudicationV0,
     FluencyCorrectionTriggerEntryV0,
     FluencyCorrectionTriggerV0,
     FluencyDecisionStatusV0,
@@ -57,7 +66,7 @@ from ._models import (
     FluencyStateV0,
 )
 from ._packet import fluency_bindings_from_config_v0
-from ._serialization import parse_fluency_correction_trigger_v0
+from ._serialization import parse_fluency_adjudication_v0, parse_fluency_correction_trigger_v0
 
 
 def _candidate_targets(candidate: EditorialCandidateSetV0) -> dict[str, bytes]:
@@ -450,3 +459,209 @@ def bind_fluency_accuracy_acceptance_v0(
         )
 
     return implementation, handler
+
+
+def _canonical_terminal_tuple(values: tuple[tuple[str, bytes], ...]) -> tuple[tuple[str, bytes], ...]:
+    try:
+        rows = tuple((path, bytes(payload)) for path, payload in values)
+    except (TypeError, ValueError) as error:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication terminal artifacts are invalid") from error
+    paths = tuple(path for path, _payload in rows)
+    if (
+        any(not isinstance(path, str) or not path for path in paths)
+        or paths != tuple(sorted(paths))
+        or len(paths) != len(set(paths))
+    ):
+        raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency adjudication terminal paths must be unique and sorted")
+    return rows
+
+
+def _canonical_mapping_artifact(payload: bytes, name: str) -> Mapping[str, object]:
+    value = parse_canonical_json(payload)
+    if canonical_json_bytes(value) != payload or not isinstance(value, Mapping):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, f"{name} is not canonical")
+    return value
+
+
+def accept_fluency_adjudication_v0(
+    resolved: ResolvedConfigV0,
+    trigger_bytes: bytes,
+    job: EditorialJobV0,
+    packet: EditorialPacketV0,
+    policy: EditorialPolicyV0,
+    parent_candidate: EditorialCandidateSetV0,
+    receipt: EditorialSubmissionReceiptV0,
+    raw_output: bytes,
+    terminal_artifacts: tuple[tuple[str, bytes], ...],
+) -> FluencyAdjudicationV0:
+    """Narrow exact existing editorial terminal evidence into fluency adjudication."""
+    if not all(isinstance(value, selected) for value, selected in (
+        (resolved, ResolvedConfigV0),
+        (job, EditorialJobV0),
+        (packet, EditorialPacketV0),
+        (policy, EditorialPolicyV0),
+        (parent_candidate, EditorialCandidateSetV0),
+        (receipt, EditorialSubmissionReceiptV0),
+    )) or not isinstance(trigger_bytes, bytes) or not isinstance(raw_output, bytes):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication inputs are invalid")
+
+    trigger = parse_fluency_correction_trigger_v0(trigger_bytes)
+    fluency_accuracy_provider_inputs_v0(
+        resolved, job, packet, policy, parent_candidate, trigger_bytes,
+    )
+    expected_receipt = EditorialSubmissionReceiptV0(
+        job.job_id,
+        job.invocation_id,
+        job.provider,
+        receipt.provider_request_id,
+        job.packet_sha256,
+        job.output_contract_sha256,
+        raw_sha256(raw_output),
+    )
+    if receipt != expected_receipt:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication receipt or raw output drift")
+
+    expected_terminal = editorial_terminal_artifacts_v0(
+        job, packet, policy, parent_candidate, receipt, raw_output,
+    )
+    supplied_terminal = _canonical_terminal_tuple(terminal_artifacts)
+    if supplied_terminal != expected_terminal:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication terminal artifact drift")
+    terminal = dict(expected_terminal)
+    root = editorial_job_root_v0(job)
+    decision_bytes = terminal[posixpath.join(root, "decision_set.json")]
+    overlay_bytes = terminal[posixpath.join(root, "overlay.json")]
+    candidate_bytes = terminal[posixpath.join(root, "candidate_set.json")]
+    state_bytes = terminal[posixpath.join(root, "state.json")]
+    decision = _canonical_mapping_artifact(decision_bytes, "Fluency adjudication decision set")
+    overlay = _canonical_mapping_artifact(overlay_bytes, "Fluency adjudication overlay")
+    state = _canonical_mapping_artifact(state_bytes, "Fluency adjudication editorial state")
+    resulting_candidate = parse_editorial_candidate_v0(candidate_bytes)
+    if (
+        decision.get("status") != EditorialJobStatusV0.ACCEPTED.value
+        or state.get("status") != EditorialJobStatusV0.ACCEPTED.value
+        or decision.get("job_id") != job.job_id
+        or overlay.get("job_id") != job.job_id
+        or resulting_candidate.job_id != job.job_id
+        or state.get("job_id") != job.job_id
+        or state.get("invocation_id") != job.invocation_id
+    ):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication requires exact accepted editorial terminal evidence")
+
+    decision_rows = decision.get("decisions")
+    overlay_rows = overlay.get("entries")
+    if not isinstance(decision_rows, list) or not isinstance(overlay_rows, list):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication editorial rows are invalid")
+
+    trigger_by_source = {entry.source_stable_id: entry for entry in trigger.entries}
+    if len(trigger_by_source) != len(trigger.entries):
+        raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency adjudication source mapping collides")
+    decisions: dict[str, Mapping[str, object]] = {}
+    for row in decision_rows:
+        if not isinstance(row, Mapping):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication decision row is invalid")
+        try:
+            source_id = display_id(BranchIdentity.from_dict(row["identity"]))
+        except (KeyError, TypeError) as error:
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication decision identity is invalid") from error
+        if source_id in decisions:
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency adjudication decision identity collides")
+        decisions[source_id] = row
+    if tuple(sorted(decisions)) != trigger.requested_source_ids:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication decision coverage drift")
+
+    overlays: dict[str, Mapping[str, object]] = {}
+    for row in overlay_rows:
+        if not isinstance(row, Mapping):
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication overlay row is invalid")
+        try:
+            source_id = display_id(BranchIdentity.from_dict(row["source_identity"]))
+        except (KeyError, TypeError) as error:
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication overlay identity is invalid") from error
+        if source_id in overlays:
+            raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Fluency adjudication overlay identity collides")
+        overlays[source_id] = row
+
+    parent_targets = _candidate_targets(parent_candidate)
+    resulting_targets = _candidate_targets(resulting_candidate)
+    if set(parent_targets) != set(resulting_targets):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication candidate identity set drift")
+    changed_target_ids = tuple(sorted(
+        target_id for target_id in parent_targets
+        if parent_targets[target_id] != resulting_targets[target_id]
+    ))
+
+    entries = []
+    keep_ids = []
+    corrected_ids = []
+    correct_source_ids = []
+    for trigger_entry in trigger.entries:
+        source_id = trigger_entry.source_stable_id
+        target_id = trigger_entry.target_stable_id
+        decision_row = decisions[source_id]
+        try:
+            action = EditorialActionV0(decision_row["action"])
+            reason_code = decision_row["reason_code"]
+        except (KeyError, TypeError, ValueError) as error:
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication decision value is invalid") from error
+        if not isinstance(reason_code, str) or not reason_code:
+            raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Fluency adjudication decision reason is invalid")
+        if target_id not in parent_targets or raw_sha256(parent_targets[target_id]) != trigger_entry.target_sha256:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication trigger target drift")
+        finding_set_sha = raw_sha256(canonical_json_bytes([
+            finding.as_dict() for finding in trigger_entry.findings
+        ]))
+        overlay_entry_sha = None
+        if action is EditorialActionV0.KEEP:
+            if decision_row.get("replacement_sha256") is not None or source_id in overlays or parent_targets[target_id] != resulting_targets[target_id]:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency KEEP adjudication target or overlay drift")
+            keep_ids.append(target_id)
+        elif action is EditorialActionV0.CORRECT:
+            overlay_row = overlays.get(source_id)
+            if decision_row.get("replacement_sha256") is None or overlay_row is None or parent_targets[target_id] == resulting_targets[target_id]:
+                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency CORRECT adjudication target or overlay drift")
+            overlay_entry_sha = raw_sha256(canonical_json_bytes(overlay_row))
+            corrected_ids.append(target_id)
+            correct_source_ids.append(source_id)
+        else:
+            raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication forbids editorial rework")
+        entries.append(FluencyAdjudicationEntryV0(
+            target_id,
+            source_id,
+            finding_set_sha,
+            action,
+            reason_code,
+            overlay_entry_sha,
+        ))
+
+    if tuple(sorted(overlays)) != tuple(sorted(correct_source_ids)):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication overlay set drift")
+    mapped_overlay_targets = tuple(sorted(trigger_by_source[source_id].target_stable_id for source_id in overlays))
+    corrected = tuple(sorted(corrected_ids))
+    if corrected != mapped_overlay_targets or corrected != changed_target_ids:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication corrected target set drift")
+    keep = tuple(sorted(keep_ids))
+    status = (
+        FluencyAdjudicationStatusV0.CORRECTIONS_READY_FOR_RECHECK
+        if corrected
+        else FluencyAdjudicationStatusV0.DISMISSALS_ONLY
+    )
+    adjudication = FluencyAdjudicationV0(
+        raw_sha256(trigger_bytes),
+        raw_sha256(canonical_json_bytes(job.as_dict())),
+        raw_sha256(canonical_json_bytes(packet.as_dict())),
+        raw_sha256(canonical_json_bytes(receipt.as_dict())),
+        raw_sha256(raw_output),
+        raw_sha256(decision_bytes),
+        raw_sha256(overlay_bytes),
+        raw_sha256(candidate_bytes),
+        raw_sha256(state_bytes),
+        tuple(entries),
+        keep,
+        corrected,
+        status,
+    )
+    adjudication_bytes = canonical_json_bytes(adjudication.as_dict())
+    if parse_fluency_adjudication_v0(adjudication_bytes) != adjudication:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency adjudication serialization drift")
+    return adjudication
