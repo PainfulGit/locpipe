@@ -18,10 +18,12 @@ locpipe-demo
 ```
 
 Replace `<version>` with the exact fresh wheel filename produced from this
-checkout. This checkout declares internal release-candidate package identity
-`0.2.0b1`; it has not been tagged, uploaded or externally published. The
-historical `0.1.0b1` wheel remains the released baseline and does not contain
-the unreleased fluency lifecycle described below.
+checkout. This checkout declares package identity `0.2.0b2`. The immutable
+`0.2.0b1` prerelease remains the published fluency baseline but predates the
+public pure translation-terminal reconstruction facade. The historical
+`0.1.0b1` wheel predates the fluency lifecycle described below. Package
+identity alone does not authorize a tag, upload or external publication;
+consult the repository release page for external availability.
 
 The demo uses invented content, performs no network or game installation work
 and prints only states, counts and hashes. It exercises both a no-findings
