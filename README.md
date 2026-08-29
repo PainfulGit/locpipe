@@ -18,8 +18,10 @@ locpipe-demo
 ```
 
 Replace `<version>` with the exact fresh wheel filename produced from this
-checkout. The historical `0.1.0b1` wheel is the released baseline and does not
-contain the unreleased fluency lifecycle described below.
+checkout. This checkout declares internal release-candidate package identity
+`0.2.0b1`; it has not been tagged, uploaded or externally published. The
+historical `0.1.0b1` wheel remains the released baseline and does not contain
+the unreleased fluency lifecycle described below.
 
 The demo uses invented content, performs no network or game installation work
 and prints only states, counts and hashes. It exercises both a no-findings

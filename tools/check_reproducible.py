@@ -6,10 +6,25 @@ import os
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _project_version(root: Path = ROOT) -> str:
+    value = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    project = value.get("project")
+    version = project.get("version") if isinstance(project, dict) else None
+    if not isinstance(version, str) or not version:
+        raise SystemExit("pyproject.toml project.version is malformed")
+    return version
+
+
+def _expected_artifact_names(root: Path = ROOT) -> list[str]:
+    version = _project_version(root)
+    return [f"locpipe-{version}-py3-none-any.whl", f"locpipe-{version}.tar.gz"]
 
 
 def _build(output: Path) -> dict[str, str]:
@@ -28,7 +43,7 @@ def main() -> int:
         root = Path(directory)
         first = _build(root / "first")
         second = _build(root / "second")
-    if first != second or sorted(first) != ["locpipe-0.1.0b1-py3-none-any.whl", "locpipe-0.1.0b1.tar.gz"]:
+    if first != second or sorted(first) != _expected_artifact_names():
         raise SystemExit("package build is not byte-reproducible")
     print(json.dumps({"status": "PASS", "artifacts": first}, sort_keys=True))
     return 0

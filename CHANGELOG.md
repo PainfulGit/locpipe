@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Internal package identity for the unreleased candidate is
+`0.2.0b1`. No external tag, release asset or package publication is implied.
+
 - Additive `locpipe.fluency.v0` target-only review contracts with exact coverage,
   immutable findings, bounded source-aware correction, corrected-ID recheck and
   exact fluency authority binding into existing content validation.
