@@ -1,5 +1,6 @@
 build==1.5.0
 cyclonedx-bom==7.3.1
 hatchling==1.32.0
+pip==26.2.1
 pip-audit==2.10.1
 -r requirements-runtime.lock
