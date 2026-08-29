@@ -74,11 +74,23 @@ jobs:
         env:
           SOURCE_DATE_EPOCH: "1704067200"
       - run: python -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-runtime.lock --dest dist
-      - run: python tools/check_installed_wheel.py dist/locpipe-0.1.0b1-py3-none-any.whl
+      - name: Select unique built wheel
+        id: built_wheel
+        shell: python
+        run: |
+          import os
+          from pathlib import Path
+
+          wheels = sorted(Path("dist").glob("locpipe-*.whl"))
+          if len(wheels) != 1:
+              raise SystemExit(f"expected exactly one built locpipe wheel, found {len(wheels)}")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8", newline="\n") as stream:
+              stream.write(f"path={wheels[0].as_posix()}\n")
+      - run: python tools/check_installed_wheel.py "${{ steps.built_wheel.outputs.path }}"
       - run: cyclonedx-py requirements requirements-runtime.lock --output-format JSON --output-file dist/sbom.cdx.json
       - run: python tools/write_release_metadata.py dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: locpipe-0.1.0b1
+          name: locpipe-release-candidate
           path: dist/*
           if-no-files-found: error
