@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ from locpipe.content.v0 import frozen_scope_artifacts_v0, reconcile_sources_v0  
 from locpipe.contracts.v0 import (  # noqa: E402
     ArtifactHashV0,
     Capability,
+    ContractViolation,
     KIND_TO_SCHEMA,
     ModuleDescriptorV0,
     OperationRequestV0,
@@ -37,6 +39,7 @@ from locpipe.translation.v0 import (  # noqa: E402
     translation_acceptance_output_declarations_v0,
     translation_job_root_v0,
     translation_submission_root_v0,
+    translation_terminal_artifacts_v0,
 )
 from tests.conformance.adapter_v0.flat_adapter import SyntheticFlatAdapterV0  # noqa: E402
 from tests.conformance.adapter_v0.structured_adapter import SyntheticStructuredAdapterV0  # noqa: E402
@@ -233,6 +236,78 @@ def run_acceptance(
 
 
 class TranslationAcceptanceV0Tests(unittest.TestCase):
+    def test_pure_terminal_facade_matches_handler_and_rejects_authority_drift(self) -> None:
+        adapter = SyntheticFlatAdapterV0()
+        resolved, _corpus, _scope, job, packet = build_fixture("flat", adapter)
+        del resolved
+        raw_output = provider_output(job, packet)
+        receipt = ProviderSubmissionReceiptV0(
+            job.job_id,
+            job.invocation_id,
+            job.provider,
+            "manual-request-1",
+            job.packet_sha256,
+            job.output_contract_sha256,
+            raw_sha256(raw_output),
+        )
+        receipt_bytes = canonical_json_bytes(receipt.as_dict())
+        rebuilt = dict(translation_terminal_artifacts_v0(job, packet, receipt_bytes, raw_output))
+        result, handler_outputs, handler_job = run_acceptance("flat", adapter, provider_output)
+        self.assertEqual("PASS", result["data"]["status"])
+        self.assertEqual(job, handler_job)
+        self.assertEqual(handler_outputs, rebuilt)
+        self.assertEqual(rebuilt, dict(translation_terminal_artifacts_v0(job, packet, receipt_bytes, raw_output)))
+
+        drifted_receipts = (
+            replace(receipt, job_id="foreign-job"),
+            replace(receipt, invocation_id="foreign-invocation"),
+            replace(receipt, provider=replace(receipt.provider, config_digest="e" * 64)),
+            replace(receipt, packet_sha256="e" * 64),
+            replace(receipt, output_contract_sha256="e" * 64),
+            replace(receipt, raw_output_sha256="e" * 64),
+        )
+        for drifted in drifted_receipts:
+            with self.subTest(drift=drifted), self.assertRaises(ContractViolation):
+                translation_terminal_artifacts_v0(
+                    job, packet, canonical_json_bytes(drifted.as_dict()), raw_output,
+                )
+
+        handler_mutators = (
+            lambda row: replace(row, job_id="foreign-job"),
+            lambda row: replace(row, invocation_id="foreign-invocation"),
+            lambda row: replace(row, provider=replace(row.provider, config_digest="e" * 64)),
+            lambda row: replace(row, packet_sha256="e" * 64),
+            lambda row: replace(row, output_contract_sha256="e" * 64),
+            lambda row: replace(row, raw_output_sha256="e" * 64),
+        )
+        for mutate in handler_mutators:
+            with self.subTest(handler_mutator=mutate):
+                result, outputs, _handler_job = run_acceptance(
+                    "flat", adapter, provider_output, receipt_mutator=mutate,
+                )
+                self.assertEqual("FAIL", result["data"]["status"])
+                self.assertEqual({}, outputs)
+
+        with self.assertRaises(ContractViolation):
+            translation_terminal_artifacts_v0(job, replace(packet, target_locale="pl"), receipt_bytes, raw_output)
+        with self.assertRaises(ContractViolation):
+            translation_terminal_artifacts_v0(job, packet, receipt_bytes + b"\n", raw_output)
+        with self.assertRaises(ContractViolation):
+            translation_terminal_artifacts_v0(job, packet, receipt_bytes, raw_output + b" ")
+
+        def replace_archived_raw(artifacts, _root):
+            output_path = next(
+                path for path in artifacts
+                if path.startswith("tr/s/") and path.endswith("/output.json")
+            )
+            artifacts[output_path] += b" "
+
+        result, outputs, _handler_job = run_acceptance(
+            "flat", adapter, provider_output, artifact_mutator=replace_archived_raw,
+        )
+        self.assertEqual("FAIL", result["data"]["status"])
+        self.assertEqual({}, outputs)
+
     def test_flat_and_structured_exact_outputs_are_accepted(self) -> None:
         for name, adapter in (("flat", SyntheticFlatAdapterV0()), ("structured", SyntheticStructuredAdapterV0())):
             result, outputs, job = run_acceptance(name, adapter, provider_output)
