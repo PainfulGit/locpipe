@@ -7,6 +7,29 @@ import tempfile
 from pathlib import Path
 
 
+def _run_installed_demo(python: Path, *, root: Path) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            (str(python), "-I", "-m", "locpipe.demo"),
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=root,
+        )
+    except subprocess.CalledProcessError as error:
+        stdout = error.stdout if error.stdout is not None else ""
+        stderr = error.stderr if error.stderr is not None else ""
+        stdout_separator = "" if not stdout or stdout.endswith("\n") else "\n"
+        raise SystemExit(
+            "installed wheel demo failed with exit code "
+            f"{error.returncode}\n"
+            "--- installed demo stdout ---\n"
+            f"{stdout}{stdout_separator}"
+            "--- installed demo stderr ---\n"
+            f"{stderr}"
+        ) from None
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         raise SystemExit("usage: check_installed_wheel.py <wheel>")
@@ -26,13 +49,7 @@ def main() -> int:
         origin = Path(json.loads(origin_check.stdout.strip().splitlines()[-1])["origin"]).resolve()
         if not origin.is_relative_to((root / "venv").resolve()):
             raise SystemExit("installed wheel import escaped the temporary environment")
-        completed = subprocess.run(
-            (str(python), "-I", "-m", "locpipe.demo"),
-            check=True,
-            capture_output=True,
-            text=True,
-            cwd=root,
-        )
+        completed = _run_installed_demo(python, root=root)
         payload = json.loads(completed.stdout.strip().splitlines()[-1])
         if (
             payload.get("terminal_state") != "CONTENT_VERIFIED"
