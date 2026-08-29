@@ -25,6 +25,7 @@ from ._acceptance import (
     translation_job_root_v0,
     translation_submission_root_from_digest_v0,
     translation_submission_root_v0,
+    translation_terminal_artifacts_v0,
 )
 from ._publication import (
     prepared_translation_artifacts_v0,
@@ -59,4 +60,5 @@ __all__ = [
     "translation_job_root_v0",
     "translation_submission_root_from_digest_v0",
     "translation_submission_root_v0",
+    "translation_terminal_artifacts_v0",
 ]

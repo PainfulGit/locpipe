@@ -208,6 +208,47 @@ def _terminal_artifacts(
     )))
 
 
+def _validate_terminal_submission_binding(
+    job: TranslationJobV0,
+    packet: TranslationPacketV0,
+    receipt: ProviderSubmissionReceiptV0,
+    raw_output: bytes,
+) -> None:
+    packet_bytes = canonical_json_bytes(packet.as_dict())
+    if raw_sha256(packet_bytes) != job.packet_sha256:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Translation terminal packet differs from job authority")
+    expected_receipt = ProviderSubmissionReceiptV0(
+        job.job_id,
+        job.invocation_id,
+        job.provider,
+        receipt.provider_request_id,
+        job.packet_sha256,
+        job.output_contract_sha256,
+        raw_sha256(raw_output),
+    )
+    if receipt != expected_receipt:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Provider submission is foreign or drifted")
+
+
+def translation_terminal_artifacts_v0(
+    job: TranslationJobV0,
+    packet: TranslationPacketV0,
+    receipt_bytes: bytes,
+    raw_output: bytes,
+) -> tuple[tuple[str, bytes], ...]:
+    """Purely rebuild exact terminal artifacts from checked submission bytes."""
+
+    if not isinstance(job, TranslationJobV0) or not isinstance(packet, TranslationPacketV0):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Translation terminal authority is invalid")
+    if not isinstance(receipt_bytes, bytes) or not isinstance(raw_output, bytes):
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Translation submission artifacts must be bytes")
+    receipt = parse_submission_receipt_v0(receipt_bytes)
+    if canonical_json_bytes(receipt.as_dict()) != receipt_bytes:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Translation submission receipt is not canonical")
+    _validate_terminal_submission_binding(job, packet, receipt, raw_output)
+    return _terminal_artifacts(job, packet, receipt, raw_output)
+
+
 def bind_translation_acceptance_v0(
     module: ModuleDescriptorV0,
     project_context: ProjectContextV0,
@@ -251,11 +292,6 @@ def bind_translation_acceptance_v0(
             receipt = parse_submission_receipt_v0(receipt_bytes)
             if canonical_json_bytes(receipt.as_dict()) != receipt_bytes or submission_digest_v0(receipt) != submission_sha:
                 raise ContractViolation(ErrorCode.HASH_MISMATCH, "Submission archive identity drift")
-            if receipt != ProviderSubmissionReceiptV0(
-                job.job_id, job.invocation_id, job.provider, receipt.provider_request_id,
-                job.packet_sha256, job.output_contract_sha256, raw_sha256(raw_output),
-            ):
-                raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Provider submission is foreign or drifted")
             relations = "corpus/relations.jsonl" if (operation_context.input_root / "corpus/relations.jsonl").is_file() else None
             corpus = load_accepted_source_corpus_v0(
                 operation_context.input_root,
@@ -286,6 +322,7 @@ def bind_translation_acceptance_v0(
             )
             if rebuilt_job != job or rebuilt_packet != expected_packet or canonical_json_bytes(rebuilt_packet.as_dict()) != packet_bytes:
                 raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Translation packet or authority drift")
+            _validate_terminal_submission_binding(job, expected_packet, receipt, raw_output)
             for relative, payload in _terminal_artifacts(job, expected_packet, receipt, raw_output):
                 path = operation_context.staging_root / Path(*relative.split("/"))
                 path.parent.mkdir(parents=True, exist_ok=True)
