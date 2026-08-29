@@ -11,7 +11,7 @@ from tools.write_release_metadata import _project_version as metadata_project_ve
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_VERSION = "0.2.0b1"
+PACKAGE_VERSION = "0.2.0b2"
 CONTRACT_VERSION = "0.1.0-draft.2"
 
 
@@ -29,8 +29,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(
             _expected_artifact_names(),
             [
-                "locpipe-0.2.0b1-py3-none-any.whl",
-                "locpipe-0.2.0b1.tar.gz",
+                "locpipe-0.2.0b2-py3-none-any.whl",
+                "locpipe-0.2.0b2.tar.gz",
             ],
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -47,7 +47,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_release_metadata_derives_package_version_and_preserves_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             dist = Path(directory)
-            artifact = dist / "locpipe-0.2.0b1-py3-none-any.whl"
+            artifact = dist / "locpipe-0.2.0b2-py3-none-any.whl"
             artifact.write_bytes(b"synthetic wheel bytes")
             _write_release_metadata(dist)
             receipt = json.loads((dist / "gate-receipt.json").read_text(encoding="utf-8"))
@@ -65,17 +65,20 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn("name: locpipe-release-candidate", workflow)
         self.assertNotIn("dist/locpipe-0.1.0b1-py3-none-any.whl", workflow)
 
-    def test_release_docs_keep_candidate_unpublished_and_history_intact(self) -> None:
+    def test_release_docs_keep_successor_identity_and_history_intact(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         policy = (ROOT / "docs" / "RELEASE_POLICY.md").read_text(encoding="utf-8")
+        normalized_readme = " ".join(readme.split())
+        normalized_policy = " ".join(policy.split())
         for payload in (readme, changelog, policy):
             self.assertIn(PACKAGE_VERSION, payload)
-        self.assertIn("has not been tagged, uploaded or externally published", readme)
-        self.assertIn("No external tag, release asset or package publication is implied", changelog)
-        self.assertIn("does not authorize a tag, upload or external", policy)
+        self.assertIn("`0.2.0b1` prerelease remains the published fluency baseline", normalized_readme)
+        self.assertIn("## 0.2.0b1", changelog)
+        self.assertIn("does not itself authorize a tag, upload or external publication", normalized_policy)
+        self.assertIn("`translation_terminal_artifacts_v0`", changelog)
         self.assertIn("## 0.1.0b1", changelog)
-        self.assertIn("historical `0.1.0b1` wheel", readme)
+        self.assertIn("historical `0.1.0b1` wheel", normalized_readme)
         self.assertIn(CONTRACT_VERSION, policy)
 
 
