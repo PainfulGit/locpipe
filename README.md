@@ -18,12 +18,14 @@ locpipe-demo
 ```
 
 Replace `<version>` with the exact fresh wheel filename produced from this
-checkout. This checkout declares package identity `0.2.0b2`. The immutable
-`0.2.0b1` prerelease remains the published fluency baseline but predates the
-public pure translation-terminal reconstruction facade. The historical
-`0.1.0b1` wheel predates the fluency lifecycle described below. Package
-identity alone does not authorize a tag, upload or external publication;
-consult the repository release page for external availability.
+checkout. This checkout declares package identity `0.2.0b3` and reserves
+`v0.2.0-beta.3` as its future annotated-tag contract. The published
+`0.2.0b2` prerelease remains immutable and contains the public pure
+translation-terminal reconstruction facade. The immutable `0.2.0b1`
+prerelease remains the published fluency baseline but predates that facade.
+The historical `0.1.0b1` wheel predates the fluency lifecycle described below.
+Package identity alone does not authorize a tag, upload or external
+publication; consult the repository release page for external availability.
 
 The demo uses invented content, performs no network or game installation work
 and prints only states, counts and hashes. It exercises both a no-findings
@@ -44,6 +46,13 @@ read [the adapter guide](docs/ADAPTER_GUIDE.md) and
 
 Incompatible wire changes use a new versioned contract surface. Frozen v0
 artifacts are never rewritten in place.
+
+The additive `rebind_source_authority_v0` facade can bind an already parsed
+source corpus to another exact configuration snapshot without a filesystem
+reread or canonical segment/relation reparse. It returns fresh config-bound
+source-lock and reconciliation authority while reusing the immutable parsed
+segment and relation tuples; stale or foreign reconciliation authority is
+rejected and prior reconciliation history is not copied by assumption.
 
 Target-only fluency review is additive. Every requested target ID receives an
 explicit outcome, findings cannot replace target bytes, correction is performed

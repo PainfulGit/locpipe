@@ -11,8 +11,9 @@ from tools.write_release_metadata import _project_version as metadata_project_ve
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_VERSION = "0.2.0b2"
+PACKAGE_VERSION = "0.2.0b3"
 CONTRACT_VERSION = "0.1.0-draft.2"
+RELEASE_TAG = "v0.2.0-beta.3"
 
 
 class ReleaseContractTests(unittest.TestCase):
@@ -29,8 +30,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(
             _expected_artifact_names(),
             [
-                "locpipe-0.2.0b2-py3-none-any.whl",
-                "locpipe-0.2.0b2.tar.gz",
+                "locpipe-0.2.0b3-py3-none-any.whl",
+                "locpipe-0.2.0b3.tar.gz",
             ],
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -47,7 +48,7 @@ class ReleaseContractTests(unittest.TestCase):
     def test_release_metadata_derives_package_version_and_preserves_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             dist = Path(directory)
-            artifact = dist / "locpipe-0.2.0b2-py3-none-any.whl"
+            artifact = dist / "locpipe-0.2.0b3-py3-none-any.whl"
             artifact.write_bytes(b"synthetic wheel bytes")
             _write_release_metadata(dist)
             receipt = json.loads((dist / "gate-receipt.json").read_text(encoding="utf-8"))
@@ -73,13 +74,18 @@ class ReleaseContractTests(unittest.TestCase):
         normalized_policy = " ".join(policy.split())
         for payload in (readme, changelog, policy):
             self.assertIn(PACKAGE_VERSION, payload)
+            self.assertIn(RELEASE_TAG, payload)
         self.assertIn("`0.2.0b1` prerelease remains the published fluency baseline", normalized_readme)
+        self.assertIn("`0.2.0b2` prerelease remains immutable", normalized_readme)
+        self.assertIn("## 0.2.0b2", changelog)
         self.assertIn("## 0.2.0b1", changelog)
         self.assertIn("does not itself authorize a tag, upload or external publication", normalized_policy)
+        self.assertIn("`rebind_source_authority_v0`", changelog)
         self.assertIn("`translation_terminal_artifacts_v0`", changelog)
         self.assertIn("## 0.1.0b1", changelog)
         self.assertIn("historical `0.1.0b1` wheel", normalized_readme)
         self.assertIn(CONTRACT_VERSION, policy)
+        self.assertIn("`rfc8785==0.1.4`", policy)
 
 
 if __name__ == "__main__":

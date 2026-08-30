@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0b3
+
+- Add the public `rebind_source_authority_v0` facade for rebinding an already
+  parsed source corpus to an exact configuration snapshot without filesystem
+  reads or canonical segment/relation reparsing. The facade reuses the exact
+  immutable parsed tuples, constructs fresh source-lock and reconciliation
+  authority, rejects stale or foreign reconciliation, and does not copy prior
+  reconciliation history.
+- Preserve the frozen `0.1.0-draft.2` wire contract and exact
+  `rfc8785==0.1.4` runtime dependency.
+
+The future annotated-tag contract is `v0.2.0-beta.3`. Assigning this package
+identity does not itself authorize a tag, release asset upload or external
+publication. Existing beta.1 and beta.2 tags and release assets remain
+immutable and are never replaced in place.
+
 ## 0.2.0b2
 
 - Expose pure `translation_terminal_artifacts_v0` reconstruction through the
