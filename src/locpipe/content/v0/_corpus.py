@@ -45,6 +45,60 @@ class LoadedSourceCorpusV0:
         object.__setattr__(self, "relation_envelopes", tuple(self.relation_envelopes))
 
 
+def _source_lock_v0(
+    *,
+    config_snapshot_sha256: str,
+    adapter_id: str,
+    adapter_version: str,
+    adapter_digest: str,
+    snapshot_sha256: str,
+    segments_sha256: str,
+    relations_sha256: str | None,
+    source_locale: str,
+    source_version: str,
+    branch_ids: tuple[str, ...],
+) -> SourceLockV0:
+    projection = {
+        "snapshot_sha256": snapshot_sha256,
+        "segments_sha256": segments_sha256,
+        "relations_sha256": relations_sha256,
+        "config_snapshot_sha256": config_snapshot_sha256,
+    }
+    return SourceLockV0(
+        config_snapshot_sha256,
+        adapter_id,
+        adapter_version,
+        adapter_digest,
+        snapshot_sha256,
+        segments_sha256,
+        relations_sha256,
+        source_locale,
+        source_version,
+        branch_ids,
+        semantic_sha256(projection),
+    )
+
+
+def _rebind_loaded_source_corpus_v0(
+    corpus: LoadedSourceCorpusV0,
+    config_snapshot_sha256: str,
+) -> LoadedSourceCorpusV0:
+    lock = corpus.lock
+    rebound_lock = _source_lock_v0(
+        config_snapshot_sha256=config_snapshot_sha256,
+        adapter_id=lock.adapter_id,
+        adapter_version=lock.adapter_version,
+        adapter_digest=lock.adapter_digest,
+        snapshot_sha256=lock.snapshot_sha256,
+        segments_sha256=lock.segments_sha256,
+        relations_sha256=lock.relations_sha256,
+        source_locale=lock.source_locale,
+        source_version=lock.source_version,
+        branch_ids=lock.branch_ids,
+    )
+    return LoadedSourceCorpusV0(rebound_lock, corpus.segments, corpus.relation_envelopes)
+
+
 def parse_source_lock_v0(payload: bytes) -> SourceLockV0:
     value = parse_canonical_json(payload)
     if not isinstance(value, Mapping) or set(value) != {
@@ -177,24 +231,17 @@ def load_source_corpus_v0(
         parsed = parse_canonical_jsonl(relations_bytes, sort_key=lambda row: semantic_sha256(row))
         validate_relation_set(parsed, branch_identities=identities, locales={data["source_locale"]})
         relations = tuple(parsed)
-    projection = {
-        "snapshot_sha256": raw_sha256(snapshot_bytes),
-        "segments_sha256": raw_sha256(segments_bytes),
-        "relations_sha256": None if relations_bytes is None else raw_sha256(relations_bytes),
-        "config_snapshot_sha256": config_snapshot_sha256,
-    }
-    lock = SourceLockV0(
-        config_snapshot_sha256,
-        descriptor.adapter_id,
-        descriptor.version,
-        descriptor.digest,
-        projection["snapshot_sha256"],
-        projection["segments_sha256"],
-        projection["relations_sha256"],
-        data["source_locale"],
-        data["source_version"],
-        branch_ids,
-        semantic_sha256(projection),
+    lock = _source_lock_v0(
+        config_snapshot_sha256=config_snapshot_sha256,
+        adapter_id=descriptor.adapter_id,
+        adapter_version=descriptor.version,
+        adapter_digest=descriptor.digest,
+        snapshot_sha256=raw_sha256(snapshot_bytes),
+        segments_sha256=raw_sha256(segments_bytes),
+        relations_sha256=None if relations_bytes is None else raw_sha256(relations_bytes),
+        source_locale=data["source_locale"],
+        source_version=data["source_version"],
+        branch_ids=branch_ids,
     )
     return LoadedSourceCorpusV0(lock, tuple(segments), relations)
 
