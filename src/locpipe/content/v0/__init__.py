@@ -30,6 +30,7 @@ from ._reconciliation import (
     SourceReconciliationV0,
     TargetValidityV0,
     reconcile_sources_v0,
+    rebind_source_authority_v0,
 )
 from ._scope import (
     SCOPE_LOCK_PATH,
@@ -65,6 +66,7 @@ __all__ = [
     "freeze_scope_v0",
     "frozen_scope_artifacts_v0",
     "reconcile_sources_v0",
+    "rebind_source_authority_v0",
     "source_lock_output_declarations_v0",
     "source_reconciliation_output_declarations_v0",
     "validate_frozen_scope_artifacts_v0",

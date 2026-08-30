@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from locpipe.contracts.v0 import ContractViolation, ErrorCategory, ErrorCode, display_id, semantic_sha256
+from locpipe.contracts.v0.profiles import SHA256_RE
 
-from ._corpus import LoadedSourceCorpusV0
+from ._corpus import LoadedSourceCorpusV0, _rebind_loaded_source_corpus_v0
 from ._models import (
     LineageDirectiveV0,
     ReconciliationStateV0,
@@ -165,3 +166,21 @@ def reconcile_sources_v0(
         tombstones,
         tuple(target_rows),
     )
+
+
+def rebind_source_authority_v0(
+    corpus: LoadedSourceCorpusV0,
+    reconciliation: SourceReconciliationV0,
+    *,
+    config_snapshot_sha256: str,
+) -> tuple[LoadedSourceCorpusV0, SourceReconciliationV0]:
+    """Rebind already parsed source authority to an exact config snapshot."""
+
+    if type(corpus) is not LoadedSourceCorpusV0 or type(reconciliation) is not SourceReconciliationV0:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Source authority rebinding input is invalid")
+    if type(config_snapshot_sha256) is not str or SHA256_RE.fullmatch(config_snapshot_sha256) is None:
+        raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Config snapshot SHA must be lowercase SHA-256")
+    if reconciliation.current_corpus_digest != corpus.lock.corpus_digest:
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Source reconciliation differs from loaded corpus")
+    rebound_corpus = _rebind_loaded_source_corpus_v0(corpus, config_snapshot_sha256)
+    return rebound_corpus, reconcile_sources_v0(rebound_corpus)
