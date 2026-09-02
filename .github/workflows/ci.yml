@@ -60,6 +60,8 @@ jobs:
     name: package and security
     needs: canonical-parity
     runs-on: ubuntu-24.04
+    env:
+      SOURCE_DATE_EPOCH: "1704067200"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -74,8 +76,6 @@ jobs:
       - run: python -m pip_audit --require-hashes -r requirements-runtime.lock
       - run: python tools/check_reproducible.py
       - run: python -m build --no-isolation --outdir dist
-        env:
-          SOURCE_DATE_EPOCH: "1704067200"
       - run: 'python -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-runtime.lock --dest runtime-wheelhouse'
       - name: Select unique built wheel
         id: built_wheel
