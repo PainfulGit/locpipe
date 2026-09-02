@@ -16,6 +16,7 @@ from ._packet import (
     OUTPUT_CONTRACT_SHA256,
     ROLE_CONTRACT_SHA256,
     build_translation_job_v0,
+    build_translation_job_prepared_v0,
     provider_binding_from_config_v0,
 )
 from ._acceptance import (
@@ -50,6 +51,7 @@ __all__ = [
     "TranslationTargetSetV0",
     "bind_translation_acceptance_v0",
     "build_translation_job_v0",
+    "build_translation_job_prepared_v0",
     "prepared_translation_artifacts_v0",
     "provider_binding_from_config_v0",
     "publish_translation_group_v0",
