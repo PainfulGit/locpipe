@@ -73,7 +73,7 @@ jobs:
       - run: python -m build --no-isolation --outdir dist
         env:
           SOURCE_DATE_EPOCH: "1704067200"
-      - run: python -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-runtime.lock --dest dist
+      - run: python -m pip download --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements-runtime.lock --dest runtime-wheelhouse
       - name: Select unique built wheel
         id: built_wheel
         shell: python
@@ -86,7 +86,7 @@ jobs:
               raise SystemExit(f"expected exactly one built locpipe wheel, found {len(wheels)}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8", newline="\n") as stream:
               stream.write(f"path={wheels[0].as_posix()}\n")
-      - run: python tools/check_installed_wheel.py "${{ steps.built_wheel.outputs.path }}"
+      - run: python tools/check_installed_wheel.py "${{ steps.built_wheel.outputs.path }}" runtime-wheelhouse
       - run: cyclonedx-py requirements requirements-runtime.lock --output-format JSON --output-file dist/sbom.cdx.json
       - run: python tools/write_release_metadata.py dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
