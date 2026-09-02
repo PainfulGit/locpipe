@@ -11,10 +11,15 @@ rebinding facade is assigned package identity `0.2.0b3`, with future annotated
 tag contract `v0.2.0-beta.3`. It reuses exact immutable parsed segment and
 relation tuples without a filesystem reread or canonical reparse while
 constructing fresh config-bound source-lock and reconciliation authority.
+The process-local prepared source authority, prepared translation and prepared
+content-validation entrypoints are assigned successor package identity
+`0.2.0b4`, with future annotated tag contract `v0.2.0-beta.4`. They retain one
+prepared row layer with identity-sharing indexes, share exact scope semantics
+with the canonical path and operate under an explicit trusted-process boundary.
 These package-version changes do not alter the frozen `0.1.0-draft.2` wire
 identity or exact `rfc8785==0.1.4` runtime dependency. Assigning a package
 identity does not itself authorize a tag, upload or external publication, and
-an existing tag or release asset, including beta.1 and beta.2, is never
+an existing tag or release asset, including beta.1, beta.2 and beta.3, is never
 replaced in place.
 
 Patch releases may fix implementation defects without changing accepted wire

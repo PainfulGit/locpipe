@@ -16,9 +16,9 @@ from tools.write_release_metadata import _project_version as metadata_project_ve
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_VERSION = "0.2.0b3"
+PACKAGE_VERSION = "0.2.0b4"
 CONTRACT_VERSION = "0.1.0-draft.2"
-RELEASE_TAG = "v0.2.0-beta.3"
+RELEASE_TAG = "v0.2.0-beta.4"
 SOURCE_DATE_EPOCH = "1704067200"
 DERIVED_NAMES = ("sbom.cdx.json", "SHA256SUMS", "gate-receipt.json")
 
@@ -53,14 +53,14 @@ def _write_release_inputs(
     serial_number: str = "urn:uuid:00000000-0000-4000-8000-000000000000",
     component_type: str = "library",
     creation_order: tuple[str, ...] = (
-        "locpipe-0.2.0b3-py3-none-any.whl",
-        "locpipe-0.2.0b3.tar.gz",
+        "locpipe-0.2.0b4-py3-none-any.whl",
+        "locpipe-0.2.0b4.tar.gz",
         "sbom.cdx.json",
     ),
 ) -> None:
     payloads = {
-        "locpipe-0.2.0b3-py3-none-any.whl": wheel_bytes,
-        "locpipe-0.2.0b3.tar.gz": b"synthetic sdist bytes",
+        "locpipe-0.2.0b4-py3-none-any.whl": wheel_bytes,
+        "locpipe-0.2.0b4.tar.gz": b"synthetic sdist bytes",
         "sbom.cdx.json": _synthetic_sbom_bytes(
             timestamp=timestamp,
             serial_number=serial_number,
@@ -91,8 +91,8 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertEqual(
             _expected_artifact_names(),
             [
-                "locpipe-0.2.0b3-py3-none-any.whl",
-                "locpipe-0.2.0b3.tar.gz",
+                "locpipe-0.2.0b4-py3-none-any.whl",
+                "locpipe-0.2.0b4.tar.gz",
             ],
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -119,8 +119,8 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertEqual(
                 [row["name"] for row in receipt["artifacts"]],
                 [
-                    "locpipe-0.2.0b3-py3-none-any.whl",
-                    "locpipe-0.2.0b3.tar.gz",
+                    "locpipe-0.2.0b4-py3-none-any.whl",
+                    "locpipe-0.2.0b4.tar.gz",
                     "sbom.cdx.json",
                 ],
             )
@@ -137,13 +137,13 @@ class ReleaseContractTests(unittest.TestCase):
                 second,
                 creation_order=(
                     "sbom.cdx.json",
-                    "locpipe-0.2.0b3.tar.gz",
-                    "locpipe-0.2.0b3-py3-none-any.whl",
+                    "locpipe-0.2.0b4.tar.gz",
+                    "locpipe-0.2.0b4-py3-none-any.whl",
                 ),
             )
             for name in (
-                "locpipe-0.2.0b3-py3-none-any.whl",
-                "locpipe-0.2.0b3.tar.gz",
+                "locpipe-0.2.0b4-py3-none-any.whl",
+                "locpipe-0.2.0b4.tar.gz",
                 "sbom.cdx.json",
             ):
                 self.assertEqual((first / name).read_bytes(), (second / name).read_bytes())
@@ -172,8 +172,8 @@ class ReleaseContractTests(unittest.TestCase):
             uuid.UUID(sbom["serialNumber"].removeprefix("urn:uuid:"))
             product_authority = []
             for name in sorted((
-                "locpipe-0.2.0b3-py3-none-any.whl",
-                "locpipe-0.2.0b3.tar.gz",
+                "locpipe-0.2.0b4-py3-none-any.whl",
+                "locpipe-0.2.0b4.tar.gz",
             )):
                 payload = (first / name).read_bytes()
                 product_authority.append({
@@ -272,7 +272,15 @@ class ReleaseContractTests(unittest.TestCase):
         self.assertIn('wheels = sorted(Path("dist").glob("locpipe-*.whl"))', workflow)
         self.assertIn("if len(wheels) != 1:", workflow)
         self.assertIn('steps.built_wheel.outputs.path', workflow)
-        self.assertIn("--require-hashes --only-binary=:all: -r requirements-runtime.lock --dest dist", workflow)
+        self.assertIn(
+            "--require-hashes --only-binary=:all: -r requirements-runtime.lock --dest runtime-wheelhouse",
+            workflow,
+        )
+        self.assertNotIn("requirements-runtime.lock --dest dist", workflow)
+        self.assertIn(
+            'tools/check_installed_wheel.py "${{ steps.built_wheel.outputs.path }}" runtime-wheelhouse',
+            workflow,
+        )
         self.assertIn("name: locpipe-release-candidate", workflow)
         self.assertNotIn("dist/locpipe-0.1.0b1-py3-none-any.whl", workflow)
 
@@ -287,10 +295,15 @@ class ReleaseContractTests(unittest.TestCase):
             self.assertIn(RELEASE_TAG, payload)
         self.assertIn("`0.2.0b1` prerelease remains the published fluency baseline", normalized_readme)
         self.assertIn("`0.2.0b2` prerelease remains immutable", normalized_readme)
+        self.assertIn("`0.2.0b3` prerelease remains immutable", normalized_readme)
+        self.assertIn("## 0.2.0b3", changelog)
         self.assertIn("## 0.2.0b2", changelog)
         self.assertIn("## 0.2.0b1", changelog)
         self.assertIn("does not itself authorize a tag, upload or external publication", normalized_policy)
         self.assertIn("`rebind_source_authority_v0`", changelog)
+        self.assertIn("`prepare_accepted_source_authority_v0`", changelog)
+        self.assertIn("`build_translation_job_prepared_v0`", changelog)
+        self.assertIn("`build_content_validation_job_prepared_v0`", changelog)
         self.assertIn("`translation_terminal_artifacts_v0`", changelog)
         self.assertIn("## 0.1.0b1", changelog)
         self.assertIn("historical `0.1.0b1` wheel", normalized_readme)

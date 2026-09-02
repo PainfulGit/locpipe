@@ -18,11 +18,12 @@ locpipe-demo
 ```
 
 Replace `<version>` with the exact fresh wheel filename produced from this
-checkout. This checkout declares package identity `0.2.0b3` and reserves
-`v0.2.0-beta.3` as its future annotated-tag contract. The published
-`0.2.0b2` prerelease remains immutable and contains the public pure
-translation-terminal reconstruction facade. The immutable `0.2.0b1`
-prerelease remains the published fluency baseline but predates that facade.
+checkout. This checkout declares package identity `0.2.0b4` and reserves
+`v0.2.0-beta.4` as its future annotated-tag contract. The `0.2.0b3`
+prerelease remains immutable and contains parsed-source authority rebinding but
+predates the prepared source facade. The `0.2.0b2` prerelease remains immutable
+and contains the public pure translation-terminal reconstruction facade, while
+`0.2.0b1` prerelease remains the published fluency baseline.
 The historical `0.1.0b1` wheel predates the fluency lifecycle described below.
 Package identity alone does not authorize a tag, upload or external
 publication; consult the repository release page for external availability.
@@ -53,6 +54,14 @@ reread or canonical segment/relation reparse. It returns fresh config-bound
 source-lock and reconciliation authority while reusing the immutable parsed
 segment and relation tuples; stale or foreign reconciliation authority is
 rejected and prior reconciliation history is not copied by assumption.
+
+The additive prepared source facade accepts the same immutable source authority
+once, retains one prepared row layer with identity-sharing indexes, and exposes
+prepared translation and content-validation entrypoints with exact canonical
+parity. Warm work is bounded by the selected scope and its incident dependencies.
+It is a trusted-process contract: ordinary unsupported construction, copying,
+pickling, cross-process use and top-level substitution fail closed, while
+deliberate same-process mutation through private mechanisms is outside scope.
 
 Target-only fluency review is additive. Every requested target ID receives an
 explicit outcome, findings cannot replace target bytes, correction is performed
