@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.check_public_boundary import (
     COMMITTER_IDENTITY_INCIDENT,
@@ -69,7 +70,10 @@ class PublicBoundaryMetadataTests(unittest.TestCase):
             _validate_commit_metadata((
                 ("a" * 40, "Contributor", "name@example.com", "PainfulGit", "258659461+PainfulGit@users.noreply.github.com"),
             ))
-        with self.assertRaisesRegex(SystemExit, "unapproved committer identity"):
+        with patch(
+            "tools.check_public_boundary._committer_identity_incident_commits",
+            return_value=frozenset(),
+        ), self.assertRaisesRegex(SystemExit, "unapproved committer identity"):
             _validate_commit_metadata((
                 ("b" * 40, "PainfulGit", "258659461+PainfulGit@users.noreply.github.com", "Contributor", "name@example.com"),
             ))
