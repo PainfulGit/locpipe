@@ -8,10 +8,12 @@ import unittest
 from pathlib import Path
 
 from tools.check_public_boundary import (
+    COMMITTER_IDENTITY_INCIDENT,
     MANIFEST_CLASSIFICATION,
     MANIFEST_SCHEMA_VERSION,
     _manifest_bytes,
     _manifest_tree_sha256,
+    _committer_identity_incident_commits,
     _scan_payload,
     _scan_commit_metadata,
     _strict_json_loads,
@@ -40,6 +42,25 @@ def _run_git(root: Path, *args: str) -> bytes:
 
 
 class PublicBoundaryMetadataTests(unittest.TestCase):
+    APPROVED = ("PainfulGit", "258659461+PainfulGit@users.noreply.github.com")
+
+    def build_linear_incident(self, root: Path) -> tuple[str, tuple[str, ...]]:
+        _run_git(root, "init", "--quiet")
+        _run_git(root, "config", "user.name", self.APPROVED[0])
+        _run_git(root, "config", "user.email", self.APPROVED[1])
+        marker = root / "marker.txt"
+        marker.write_text("base\n", encoding="utf-8")
+        _run_git(root, "add", "--", marker.name)
+        _run_git(root, "commit", "--quiet", "-m", "base")
+        base = _run_git(root, "rev-parse", "HEAD").decode().strip()
+        commits = []
+        for index in range(3):
+            marker.write_text(f"{index}\n", encoding="utf-8")
+            _run_git(root, "add", "--", marker.name)
+            _run_git(root, "commit", "--quiet", "-m", f"incident {index}")
+            commits.append(_run_git(root, "rev-parse", "HEAD").decode().strip())
+        return base, tuple(commits)
+
     def test_current_history_uses_only_approved_noreply_identity(self) -> None:
         self.assertGreater(_scan_commit_metadata(), 0)
 
@@ -52,6 +73,86 @@ class PublicBoundaryMetadataTests(unittest.TestCase):
             _validate_commit_metadata((
                 ("b" * 40, "PainfulGit", "258659461+PainfulGit@users.noreply.github.com", "Contributor", "name@example.com"),
             ))
+
+    def test_incident_authority_is_exact_and_derives_one_linear_range(self) -> None:
+        self.assertEqual(
+            COMMITTER_IDENTITY_INCIDENT,
+            (
+                "f3d08c5822d93e6a0cb8968a0812fb99557c3e5c",
+                "9040f2ecc658fdc979bbdaedcc362245865b7df1",
+                26,
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, commits = self.build_linear_incident(root)
+            authority = (base, commits[-1], len(commits))
+            self.assertEqual(
+                _committer_identity_incident_commits(root=root, incident=authority),
+                frozenset(commits),
+            )
+
+            tampered = (
+                (commits[0], commits[-1], len(commits)),
+                (base, commits[-2], len(commits)),
+                (base, commits[-1], len(commits) + 1),
+            )
+            for candidate in tampered:
+                with self.subTest(candidate=candidate), self.assertRaises(SystemExit):
+                    _committer_identity_incident_commits(root=root, incident=candidate)
+
+    def test_incident_exempts_committer_only_and_not_future_or_outside_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, commits = self.build_linear_incident(root)
+            authority = (base, commits[-1], len(commits))
+            incident_row = (
+                commits[0], *self.APPROVED, "Synthetic Committer", "unapproved@example.invalid",
+            )
+            _validate_commit_metadata((incident_row,), root=root, incident=authority)
+
+            with self.assertRaisesRegex(SystemExit, "unapproved author identity"):
+                _validate_commit_metadata((
+                    (commits[0], "Contributor", "name@example.invalid", *self.APPROVED),
+                ), root=root, incident=authority)
+            with self.assertRaisesRegex(SystemExit, "unapproved committer identity"):
+                _validate_commit_metadata((
+                    (base, *self.APPROVED, "Synthetic Committer", "unapproved@example.invalid"),
+                ), root=root, incident=authority)
+
+            (root / "future.txt").write_text("future\n", encoding="utf-8")
+            _run_git(root, "add", "--", "future.txt")
+            _run_git(root, "commit", "--quiet", "-m", "future")
+            future = _run_git(root, "rev-parse", "HEAD").decode().strip()
+            with self.assertRaisesRegex(SystemExit, "unapproved committer identity"):
+                _validate_commit_metadata((
+                    (future, *self.APPROVED, "Synthetic Committer", "unapproved@example.invalid"),
+                ), root=root, incident=authority)
+            _validate_commit_metadata((
+                (future, *self.APPROVED, *self.APPROVED),
+            ), root=root, incident=authority)
+
+    def test_incident_rejects_merge_topology(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base, commits = self.build_linear_incident(root)
+            main_branch = _run_git(root, "branch", "--show-current").decode().strip()
+            _run_git(root, "branch", "side", commits[-1])
+            (root / "main.txt").write_text("main\n", encoding="utf-8")
+            _run_git(root, "add", "--", "main.txt")
+            _run_git(root, "commit", "--quiet", "-m", "main")
+            _run_git(root, "switch", "--quiet", "side")
+            (root / "side.txt").write_text("side\n", encoding="utf-8")
+            _run_git(root, "add", "--", "side.txt")
+            _run_git(root, "commit", "--quiet", "-m", "side")
+            _run_git(root, "switch", "--quiet", main_branch)
+            _run_git(root, "merge", "--quiet", "--no-ff", "side", "-m", "merge")
+            tip = _run_git(root, "rev-parse", "HEAD").decode().strip()
+            with self.assertRaisesRegex(SystemExit, "chain drift"):
+                _committer_identity_incident_commits(
+                    root=root,
+                    incident=(base, tip, len(commits) + 2),
+                )
 
     def test_synthetic_windows_marker_exception_is_exact_and_path_bound(self) -> None:
         marker = b"C:" + b"/drive.json"

@@ -32,12 +32,21 @@ SYNTHETIC_WINDOWS_ABSOLUTE_MARKER = b"C:" + b"/drive.json"
 ALLOWED_GIT_IDENTITIES = {
     ("PainfulGit", "258659461+PainfulGit@users.noreply.github.com"),
 }
+# GitHub rebase-merging PR #1 rewrote committer metadata across this exact
+# immutable first-parent range. The rejected address is deliberately neither
+# recorded nor allowed outside the cryptographically bound incident chain.
+COMMITTER_IDENTITY_INCIDENT = (
+    "f3d08c5822d93e6a0cb8968a0812fb99557c3e5c",
+    "9040f2ecc658fdc979bbdaedcc362245865b7df1",
+    26,
+)
 MANIFEST_KEYS = frozenset({"classification", "files", "schema_version", "tree_sha256"})
 MANIFEST_ROW_KEYS = frozenset({"path", "sha256", "size"})
 MANIFEST_CLASSIFICATION = "PUBLIC_EXPORT"
 MANIFEST_SCHEMA_VERSION = 1
 TREE_CONTRACT = "locpipe.public-export-tree/v1"
 SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+GIT_SHA1_HEX = re.compile(r"[0-9a-f]{40}")
 
 
 def _canonical_json_bytes(value: object) -> bytes:
@@ -148,26 +157,87 @@ def _tracked_files(*, root: Path = ROOT) -> tuple[str, ...]:
     return paths
 
 
-def _validate_commit_metadata(rows: tuple[tuple[str, str, str, str, str], ...]) -> None:
+def _committer_identity_incident_commits(
+    *,
+    root: Path = ROOT,
+    incident: tuple[str, str, int] = COMMITTER_IDENTITY_INCIDENT,
+) -> frozenset[str]:
+    if (
+        not isinstance(incident, tuple)
+        or len(incident) != 3
+        or not isinstance(incident[0], str)
+        or GIT_SHA1_HEX.fullmatch(incident[0]) is None
+        or not isinstance(incident[1], str)
+        or GIT_SHA1_HEX.fullmatch(incident[1]) is None
+        or type(incident[2]) is not int
+        or incident[2] < 1
+    ):
+        raise SystemExit("committer identity incident authority is malformed")
+    base, tip, expected_count = incident
+    try:
+        output = subprocess.check_output(
+            (
+                "git", "rev-list", "--first-parent", "--reverse", "--parents",
+                f"{base}..{tip}",
+            ),
+            cwd=root,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit("committer identity incident range is not resolvable") from exc
+    rows = tuple(line.split() for line in output.splitlines() if line)
+    if len(rows) != expected_count:
+        raise SystemExit("committer identity incident count drift")
+    previous = base
+    commits: list[str] = []
+    for row in rows:
+        if (
+            len(row) != 2
+            or GIT_SHA1_HEX.fullmatch(row[0]) is None
+            or GIT_SHA1_HEX.fullmatch(row[1]) is None
+            or row[1] != previous
+        ):
+            raise SystemExit("committer identity incident chain drift")
+        commits.append(row[0])
+        previous = row[0]
+    if not commits or commits[-1] != tip:
+        raise SystemExit("committer identity incident tip drift")
+    return frozenset(commits)
+
+
+def _validate_commit_metadata(
+    rows: tuple[tuple[str, str, str, str, str], ...],
+    *,
+    root: Path = ROOT,
+    incident: tuple[str, str, int] = COMMITTER_IDENTITY_INCIDENT,
+) -> None:
     if not rows:
         raise SystemExit("public history is empty")
+    incident_commits: frozenset[str] | None = None
     for commit, author_name, author_email, committer_name, committer_email in rows:
         if (author_name, author_email) not in ALLOWED_GIT_IDENTITIES:
             raise SystemExit(f"unapproved author identity rejected: {commit}")
         if (committer_name, committer_email) not in ALLOWED_GIT_IDENTITIES:
-            raise SystemExit(f"unapproved committer identity rejected: {commit}")
+            if incident_commits is None:
+                incident_commits = _committer_identity_incident_commits(
+                    root=root,
+                    incident=incident,
+                )
+            if commit not in incident_commits:
+                raise SystemExit(f"unapproved committer identity rejected: {commit}")
 
 
-def _scan_commit_metadata() -> int:
+def _scan_commit_metadata(*, root: Path = ROOT) -> int:
     payload = subprocess.check_output(
         ("git", "log", "--all", "-z", "--format=%H%x00%an%x00%ae%x00%cn%x00%ce"),
-        cwd=ROOT,
+        cwd=root,
     )
     values = tuple(value.decode("utf-8") for value in payload.split(b"\0") if value)
     if len(values) % 5:
         raise SystemExit("public history metadata is malformed")
     rows = tuple(tuple(values[index:index + 5]) for index in range(0, len(values), 5))
-    _validate_commit_metadata(rows)
+    _validate_commit_metadata(rows, root=root)
     return len(rows)
 
 
