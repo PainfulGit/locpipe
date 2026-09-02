@@ -4,7 +4,8 @@ from collections.abc import Mapping
 import posixpath
 from typing import Any
 
-from locpipe.content.v0 import FrozenScopeV0
+from locpipe.content.v0 import FrozenScopeV0, PreparedSourceAuthorityV0
+from locpipe.content.v0._prepared import _prepared_source_parts_v0
 from locpipe.contracts.v0 import (
     BranchIdentity,
     Capability,
@@ -62,11 +63,15 @@ def content_validation_binding_from_config_v0(resolved: ResolvedConfigV0) -> Mod
     return ModuleDescriptorV0(Capability.CONTENT_VALIDATION, row["module_id"], row["version"], row["digest"])
 
 
-def _artifact_projection(rows: tuple[tuple[str, bytes], ...]) -> list[dict[str, str]]:
+def _artifact_projection(
+    rows: tuple[tuple[str, bytes], ...],
+    known_sha256: Mapping[str, str] | None = None,
+) -> list[dict[str, str]]:
     paths = tuple(path for path, _payload in rows)
     if paths != tuple(sorted(paths)) or len(paths) != len(set(paths)):
         raise ContractViolation(ErrorCode.DUPLICATE_IDENTITY, "Validation authority paths must be unique and sorted")
-    return [{"path": path, "sha256": raw_sha256(payload)} for path, payload in rows]
+    known = {} if known_sha256 is None else known_sha256
+    return [{"path": path, "sha256": known.get(path) or raw_sha256(payload)} for path, payload in rows]
 
 
 def _target_key(payload: bytes) -> tuple[tuple[str, ...], tuple[Any, ...]]:
@@ -263,6 +268,11 @@ def _build_content_validation_job_from_authority_v0(
     editorial_packet: EditorialPacketV0 | None = None,
     editorial_policy: EditorialPolicyV0 | None = None,
     supplemental_authority: tuple[tuple[str, bytes], ...],
+    current_revisions: Mapping[str, str] | None = None,
+    known_source_lock_sha256: str | None = None,
+    known_reconciliation_sha256: str | None = None,
+    known_segments_sha256: str | None = None,
+    known_authority_sha256: Mapping[str, str] | None = None,
 ) -> tuple[ContentValidationJobV0, ContentValidationPacketV0, tuple[tuple[str, bytes], ...]]:
     if not isinstance(supplemental_authority, tuple):
         raise ContractViolation(ErrorCode.MALFORMED_ARTIFACT, "Validation supplemental authority must be an immutable tuple")
@@ -295,10 +305,12 @@ def _build_content_validation_job_from_authority_v0(
     _validate_translation_authority(
         translation_job, translation_packet, translation_decision_bytes, target_set, translation_state_bytes,
     )
+    source_lock_sha256 = known_source_lock_sha256 or raw_sha256(source_lock_bytes)
+    reconciliation_sha256 = known_reconciliation_sha256 or raw_sha256(reconciliation_bytes)
     if (
         raw_sha256(scope_bytes) != translation_job.scope_sha256
-        or raw_sha256(source_lock_bytes) != translation_job.source_lock_sha256
-        or raw_sha256(reconciliation_bytes) != translation_job.reconciliation_sha256
+        or source_lock_sha256 != translation_job.source_lock_sha256
+        or reconciliation_sha256 != translation_job.reconciliation_sha256
         or canonical_json_bytes(scope.scope_dict()) != scope_bytes
         or context.config_snapshot_sha256 != scope.config_snapshot_sha256
         or translation_job.target_locale not in scope.target_locales
@@ -308,16 +320,20 @@ def _build_content_validation_job_from_authority_v0(
     if scope_lock.get("scope_sha256") != raw_sha256(scope_bytes):
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation scope lock drift")
     source_lock = parse_canonical_json(source_lock_bytes)
-    if source_lock.get("segments_sha256") != raw_sha256(segments_bytes):
+    segments_sha256 = known_segments_sha256 or raw_sha256(segments_bytes)
+    if source_lock.get("segments_sha256") != segments_sha256:
         raise ContractViolation(ErrorCode.HASH_MISMATCH, "Validation segments differ from source lock")
-    source_rows = parse_canonical_jsonl(
-        segments_bytes,
-        sort_key=lambda row: display_id(BranchIdentity.from_dict(row["data"]["identity"])),
-    )
-    current_revisions = {
-        display_id(BranchIdentity.from_dict(row["data"]["identity"])): row["data"]["source_revision_sha"]
-        for row in source_rows
-    }
+    if current_revisions is None:
+        source_rows = parse_canonical_jsonl(
+            segments_bytes,
+            sort_key=lambda row: display_id(BranchIdentity.from_dict(row["data"]["identity"])),
+        )
+        effective_current_revisions = {
+            display_id(BranchIdentity.from_dict(row["data"]["identity"])): row["data"]["source_revision_sha"]
+            for row in source_rows
+        }
+    else:
+        effective_current_revisions = current_revisions
     candidate_authority_sha, round_index, max_rounds, editorial_available = _validate_candidate_authority(
         candidate, candidate_evidence, editorial_job, editorial_packet, editorial_policy,
     )
@@ -343,7 +359,7 @@ def _build_content_validation_job_from_authority_v0(
     if set(packet_by_key) != owned_scope | context_scope:
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation translation packet differs from frozen scope")
     for key, source in packet_by_key.items():
-        if current_revisions.get(source.stable_id) != source.source_revision_sha:
+        if effective_current_revisions.get(source.stable_id) != source.source_revision_sha:
             raise ContractViolation(ErrorCode.HASH_MISMATCH, "Validation source dependency is stale or removed")
         constraints = strict_loads(source._constraints_bytes)
         if source.content_type not in validator.supported_content_types:
@@ -393,7 +409,7 @@ def _build_content_validation_job_from_authority_v0(
     if base_paths.intersection(supplemental_paths):
         raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Validation supplemental authority collides with base authority")
     authority = tuple(sorted((*base_authority, *supplemental)))
-    authority_sha = semantic_sha256(_artifact_projection(authority))
+    authority_sha = semantic_sha256(_artifact_projection(authority, known_authority_sha256))
     packet_sha = raw_sha256(canonical_json_bytes(packet.as_dict()))
     identity = {
         "context_digest": context.context_digest,
@@ -479,6 +495,60 @@ def build_content_validation_job_v0(
         editorial_packet=editorial_packet,
         editorial_policy=editorial_policy,
         supplemental_authority=(),
+    )
+
+
+def build_content_validation_job_prepared_v0(
+    context: ProjectContextV0,
+    resolved: ResolvedConfigV0,
+    authority: PreparedSourceAuthorityV0,
+    scope: FrozenScopeV0,
+    translation_job: TranslationJobV0,
+    translation_packet: TranslationPacketV0,
+    translation_decision_bytes: bytes,
+    translation_state_bytes: bytes,
+    target_set: TranslationTargetSetV0,
+    candidate: EditorialCandidateSetV0,
+    validator: ContentValidatorV0,
+    *,
+    scope_bytes: bytes,
+    scope_lock_bytes: bytes,
+    candidate_evidence: tuple[tuple[str, bytes], ...],
+    editorial_job: EditorialJobV0 | None = None,
+    editorial_packet: EditorialPacketV0 | None = None,
+    editorial_policy: EditorialPolicyV0 | None = None,
+) -> tuple[ContentValidationJobV0, ContentValidationPacketV0, tuple[tuple[str, bytes], ...]]:
+    prepared = _prepared_source_parts_v0(authority)
+    return _build_content_validation_job_from_authority_v0(
+        context,
+        resolved,
+        scope,
+        translation_job,
+        translation_packet,
+        translation_decision_bytes,
+        translation_state_bytes,
+        target_set,
+        candidate,
+        validator,
+        source_lock_bytes=prepared.source_lock_bytes,
+        reconciliation_bytes=prepared.reconciliation_bytes,
+        scope_bytes=scope_bytes,
+        scope_lock_bytes=scope_lock_bytes,
+        segments_bytes=prepared.segments_bytes,
+        candidate_evidence=candidate_evidence,
+        editorial_job=editorial_job,
+        editorial_packet=editorial_packet,
+        editorial_policy=editorial_policy,
+        supplemental_authority=(),
+        current_revisions=prepared._revision_index,
+        known_source_lock_sha256=prepared._source_lock_sha256,
+        known_reconciliation_sha256=prepared._reconciliation_sha256,
+        known_segments_sha256=prepared._segments_sha256,
+        known_authority_sha256={
+            "corpus/segments.jsonl": prepared._segments_sha256,
+            "reconciliation/reconciliation.json": prepared._reconciliation_sha256,
+            "source/source_lock.json": prepared._source_lock_sha256,
+        },
     )
 
 

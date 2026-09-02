@@ -5,6 +5,8 @@ from ._corpus import (
     load_accepted_source_corpus_v0,
     load_source_corpus_v0,
     parse_source_lock_v0,
+    prepare_accepted_source_authority_v0,
+    rebind_prepared_source_authority_v0,
     validate_source_lock_v0,
 )
 from ._handlers import (
@@ -24,6 +26,11 @@ from ._models import (
     SourceSegmentV0,
     TargetBindingV0,
     TargetValidityStateV0,
+)
+from ._prepared import (
+    PreparedSourceAuthorityV0,
+    PreparedSourceRelationV0,
+    PreparedSourceSegmentV0,
 )
 from ._reconciliation import (
     ReconciliationEventV0,
@@ -45,6 +52,9 @@ __all__ = [
     "FrozenScopeV0",
     "LineageDirectiveV0",
     "LoadedSourceCorpusV0",
+    "PreparedSourceAuthorityV0",
+    "PreparedSourceRelationV0",
+    "PreparedSourceSegmentV0",
     "ReconciliationEventV0",
     "ReconciliationStateV0",
     "ScopeEntryV0",
@@ -63,10 +73,12 @@ __all__ = [
     "load_accepted_source_corpus_v0",
     "load_source_corpus_v0",
     "parse_source_lock_v0",
+    "prepare_accepted_source_authority_v0",
     "freeze_scope_v0",
     "frozen_scope_artifacts_v0",
     "reconcile_sources_v0",
     "rebind_source_authority_v0",
+    "rebind_prepared_source_authority_v0",
     "source_lock_output_declarations_v0",
     "source_reconciliation_output_declarations_v0",
     "validate_frozen_scope_artifacts_v0",

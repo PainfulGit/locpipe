@@ -29,6 +29,7 @@ from ._handler import (
 )
 from ._packet import (
     build_content_validation_job_v0,
+    build_content_validation_job_prepared_v0,
     content_validation_binding_from_config_v0,
     validation_job_root_v0,
 )
@@ -57,6 +58,7 @@ __all__ = [
     "bind_content_validator_v0",
     "bind_validation_editorial_acceptance_v0",
     "build_content_validation_job_v0",
+    "build_content_validation_job_prepared_v0",
     "build_validation_editorial_rework_v0",
     "content_locale_receipt_artifact_v0",
     "content_locale_receipt_v0",
