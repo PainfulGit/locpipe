@@ -269,6 +269,16 @@ class ReleaseContractTests(unittest.TestCase):
 
     def test_ci_selects_one_wheel_and_keeps_offline_runtime_authority(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        package_job = workflow.split("\n  package:\n", 1)[1]
+        self.assertIn(
+            '    runs-on: ubuntu-24.04\n    env:\n      SOURCE_DATE_EPOCH: "1704067200"\n    steps:\n',
+            package_job,
+        )
+        self.assertEqual(workflow.count('SOURCE_DATE_EPOCH: "1704067200"'), 1)
+        self.assertNotIn(
+            "python -m build --no-isolation --outdir dist\n        env:",
+            package_job,
+        )
         self.assertIn('wheels = sorted(Path("dist").glob("locpipe-*.whl"))', workflow)
         self.assertIn("if len(wheels) != 1:", workflow)
         self.assertIn('steps.built_wheel.outputs.path', workflow)
