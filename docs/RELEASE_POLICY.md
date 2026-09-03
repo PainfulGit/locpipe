@@ -19,8 +19,14 @@ with the canonical path and operate under an explicit trusted-process boundary.
 These package-version changes do not alter the frozen `0.1.0-draft.2` wire
 identity or exact `rfc8785==0.1.4` runtime dependency. Assigning a package
 identity does not itself authorize a tag, upload or external publication, and
-an existing tag or release asset, including beta.1, beta.2 and beta.3, is never
+an existing tag or release asset, including beta.1, beta.2, beta.3 and beta.4, is never
 replaced in place.
+
+The additive prepared fluency content-validation facade is assigned successor
+package identity `0.2.0b5`, with future annotated tag contract
+`v0.2.0-beta.5`. It preserves both accepted fluency provenance paths and their
+supplemental validation authority while reusing prepared source indexes and
+known hashes. It does not change the frozen wire identity or runtime dependency.
 
 Patch releases may fix implementation defects without changing accepted wire
 bytes. Additive public APIs require tests and documentation. Incompatible

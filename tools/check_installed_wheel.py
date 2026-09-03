@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from locpipe._demo_support.conformance.adapter_v0.structured_adapter import SyntheticStructuredAdapterV0
+from locpipe._demo_support import test_fluency_lifecycle_v0 as fluency_support
 from locpipe._demo_support.test_content_validation_v0 import validation_fixture
 from locpipe._demo_support.test_translation_packet_v0 import FIXTURES, build_fixture
 from locpipe.content.v0 import (
@@ -28,6 +29,7 @@ from locpipe.content.v0 import (
 from locpipe.contracts.v0 import WorkflowProfile, canonical_json_bytes
 from locpipe.kernel.v0.context import ProjectContextV0
 from locpipe.kernel.v0.transactions import NamespaceV0
+from locpipe.fluency.v0 import build_fluency_content_validation_job_prepared_v0
 from locpipe.translation.v0 import ProviderBudgetV0, build_translation_job_prepared_v0
 from locpipe.validation.v0 import build_content_validation_job_prepared_v0
 
@@ -39,6 +41,7 @@ public_symbols = (
     rebind_prepared_source_authority_v0,
     build_translation_job_prepared_v0,
     build_content_validation_job_prepared_v0,
+    build_fluency_content_validation_job_prepared_v0,
 )
 if not all(callable(value) for value in public_symbols):
     raise SystemExit("prepared public API is incomplete")
@@ -133,10 +136,73 @@ with tempfile.TemporaryDirectory() as directory:
     ):
         raise SystemExit("prepared validation differs from canonical validation")
 
+    fluency_validation = fluency_support._validation_fixture()
+    fluency_authority = dict(fluency_validation["authority"])
+    fluency_root = root / "fluency-validation"
+    fluency_root.mkdir()
+    for name in ("source_snapshot.json", "segments.jsonl"):
+        shutil.copyfile(flat_golden / name, fluency_root / name)
+    (fluency_root / "source_lock.json").write_bytes(
+        fluency_authority["source/source_lock.json"]
+    )
+    prepared_fluency_authority = prepare_accepted_source_authority_v0(
+        fluency_root,
+        snapshot_path="source_snapshot.json",
+        segments_path="segments.jsonl",
+        relations_path=None,
+        source_lock_path="source_lock.json",
+        descriptor=fluency_validation["adapter"].descriptor,
+        expected_config_snapshot_sha256=fluency_validation["resolved"].config_snapshot_sha256,
+    )
+    initial = fluency_support._review_chain(fluency_validation, finding=False)
+    provenance = {
+        "provenance_kind": "INITIAL_STATE",
+        "initial_projection": initial["projection"],
+        "initial_budget": initial["budget"],
+        "initial_plan": initial["plan"],
+        "initial_job": initial["job"],
+        "initial_packet": initial["packet"],
+        "initial_receipt_bytes": initial["receipt_bytes"],
+        "initial_raw_output": initial["raw_output"],
+        "initial_decision": initial["decision"],
+        "initial_state": initial["state"],
+    }
+    canonical_fluency = fluency_support._validation_call(
+        fluency_validation,
+        fluency_validation["candidate"],
+        fluency_validation["candidate_evidence"],
+        fluency_validation["editorial_job"],
+        fluency_validation["editorial_packet"],
+        **provenance,
+    )
+    prepared_fluency = build_fluency_content_validation_job_prepared_v0(
+        fluency_validation["context"],
+        fluency_validation["resolved"],
+        prepared_fluency_authority,
+        fluency_validation["scope"],
+        fluency_validation["translation_job"],
+        fluency_validation["translation_packet"],
+        fluency_validation["translation_decision_bytes"],
+        fluency_validation["translation_state_bytes"],
+        fluency_validation["translation_target_set"],
+        fluency_validation["candidate"],
+        fluency_validation["validator"],
+        scope_bytes=fluency_authority["scope/scope.json"],
+        scope_lock_bytes=fluency_authority["scope/scope_lock.json"],
+        candidate_evidence=fluency_validation["candidate_evidence"],
+        editorial_job=fluency_validation["editorial_job"],
+        editorial_packet=fluency_validation["editorial_packet"],
+        editorial_policy=fluency_validation["editorial_policy"],
+        **provenance,
+    )
+    if prepared_fluency != canonical_fluency:
+        raise SystemExit("prepared fluency validation differs from canonical fluency validation")
+
 print(json.dumps({
     "prepared_api": "PASS",
     "rows": len(authority.segments),
     "validation_api": "PASS",
+    "fluency_validation_api": "PASS",
 }, sort_keys=True))
 """
 
@@ -251,11 +317,13 @@ def main() -> int:
         if (
             prepared_payload.get("prepared_api") != "PASS"
             or prepared_payload.get("validation_api") != "PASS"
+            or prepared_payload.get("fluency_validation_api") != "PASS"
             or prepared_payload.get("rows", 0) < 1
         ):
             raise SystemExit("installed wheel prepared API proof failed")
     print(json.dumps({
         "prepared_api": "PASS",
+        "fluency_validation_api": "PASS",
         "status": "PASS",
         "terminal_state": "CONTENT_VERIFIED",
         "validation_api": "PASS",
