@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0b5
+
+- Add the public `build_fluency_content_validation_job_prepared_v0`
+  entrypoint. It preserves the complete canonical fluency validation job,
+  packet and supplemental authority bytes while reusing the process-local
+  prepared source revision index and known hashes.
+- Keep both `INITIAL_STATE` and `CORRECTION_TERMINAL` provenance validation on
+  the existing fluency authority path. Warm prepared validation does not parse,
+  iterate or rehash the complete source corpus.
+- Preserve the frozen `0.1.0-draft.2` wire contract and exact
+  `rfc8785==0.1.4` runtime dependency.
+
+The future annotated-tag contract is `v0.2.0-beta.5`. Assigning this package
+identity does not itself authorize a tag, release asset upload or external
+publication. Existing beta.1, beta.2, beta.3 and beta.4 tags and release assets
+remain immutable and are never replaced in place.
+
 ## 0.2.0b4
 
 - Add the public `prepare_accepted_source_authority_v0` and

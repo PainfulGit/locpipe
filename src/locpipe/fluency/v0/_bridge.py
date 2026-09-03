@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Literal
 
-from locpipe.content.v0 import FrozenScopeV0
+from locpipe.content.v0 import FrozenScopeV0, PreparedSourceAuthorityV0
+from locpipe.content.v0._prepared import _prepared_source_parts_v0
 from locpipe.contracts.v0 import (
     ContractViolation,
     ErrorCode,
@@ -305,7 +306,7 @@ def _normalize_correction_validation_authority_v0(
     )
 
 
-def build_fluency_content_validation_job_v0(
+def _build_fluency_content_validation_job_v0(
     context: ProjectContextV0,
     resolved: ResolvedConfigV0,
     scope: FrozenScopeV0,
@@ -317,11 +318,12 @@ def build_fluency_content_validation_job_v0(
     candidate: EditorialCandidateSetV0,
     validator: ContentValidatorV0,
     *,
-    source_lock_bytes: bytes,
-    reconciliation_bytes: bytes,
+    source_lock_bytes: bytes | None,
+    reconciliation_bytes: bytes | None,
     scope_bytes: bytes,
     scope_lock_bytes: bytes,
-    segments_bytes: bytes,
+    segments_bytes: bytes | None,
+    prepared_authority: PreparedSourceAuthorityV0 | None,
     candidate_evidence: tuple[tuple[str, bytes], ...],
     editorial_job: EditorialJobV0 | None = None,
     editorial_packet: EditorialPacketV0 | None = None,
@@ -457,7 +459,112 @@ def build_fluency_content_validation_job_v0(
             recheck_state=correction_recheck_state,
         )
 
+    source_access: dict[str, object]
+    if prepared_authority is None:
+        source_access = {
+            "source_lock_bytes": source_lock_bytes,
+            "reconciliation_bytes": reconciliation_bytes,
+            "segments_bytes": segments_bytes,
+        }
+    else:
+        prepared = _prepared_source_parts_v0(prepared_authority)
+        source_access = {
+            "source_lock_bytes": prepared.source_lock_bytes,
+            "reconciliation_bytes": prepared.reconciliation_bytes,
+            "segments_bytes": prepared.segments_bytes,
+            "current_revisions": prepared._revision_index,
+            "known_source_lock_sha256": prepared._source_lock_sha256,
+            "known_reconciliation_sha256": prepared._reconciliation_sha256,
+            "known_segments_sha256": prepared._segments_sha256,
+            "known_authority_sha256": {
+                "corpus/segments.jsonl": prepared._segments_sha256,
+                "reconciliation/reconciliation.json": prepared._reconciliation_sha256,
+                "source/source_lock.json": prepared._source_lock_sha256,
+            },
+        }
     job, packet, authority = _build_content_validation_job_from_authority_v0(
+        context,
+        resolved,
+        scope,
+        translation_job,
+        translation_packet,
+        translation_decision_bytes,
+        translation_state_bytes,
+        target_set,
+        candidate,
+        validator,
+        scope_bytes=scope_bytes,
+        scope_lock_bytes=scope_lock_bytes,
+        candidate_evidence=candidate_evidence,
+        editorial_job=editorial_job,
+        editorial_packet=editorial_packet,
+        editorial_policy=editorial_policy,
+        supplemental_authority=((_PROJECTION_PATH, projection_bytes),),
+        **source_access,
+    )
+    supplemental = tuple((path, payload) for path, payload in authority if path == _PROJECTION_PATH)
+    projection = parse_canonical_json(projection_bytes)
+    if (
+        supplemental != ((_PROJECTION_PATH, projection_bytes),)
+        or job.candidate_sha256 != projection["candidate_sha256"]
+        or job.candidate_authority_sha256 != projection["candidate_authority_sha256"]
+    ):
+        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency validation job does not bind normalized authority")
+    return job, packet, authority
+
+
+def build_fluency_content_validation_job_v0(
+    context: ProjectContextV0,
+    resolved: ResolvedConfigV0,
+    scope: FrozenScopeV0,
+    translation_job: TranslationJobV0,
+    translation_packet: TranslationPacketV0,
+    translation_decision_bytes: bytes,
+    translation_state_bytes: bytes,
+    target_set: TranslationTargetSetV0,
+    candidate: EditorialCandidateSetV0,
+    validator: ContentValidatorV0,
+    *,
+    source_lock_bytes: bytes,
+    reconciliation_bytes: bytes,
+    scope_bytes: bytes,
+    scope_lock_bytes: bytes,
+    segments_bytes: bytes,
+    candidate_evidence: tuple[tuple[str, bytes], ...],
+    editorial_job: EditorialJobV0 | None = None,
+    editorial_packet: EditorialPacketV0 | None = None,
+    editorial_policy: EditorialPolicyV0 | None = None,
+    provenance_kind: Literal["INITIAL_STATE", "CORRECTION_TERMINAL"],
+    initial_projection: FluencyTargetProjectionV0 | None = None,
+    initial_budget: ProviderBudgetV0 | None = None,
+    initial_plan: FluencyReviewPlanV0 | None = None,
+    initial_job: FluencyReviewJobV0 | None = None,
+    initial_packet: FluencyReviewPacketV0 | None = None,
+    initial_receipt_bytes: bytes | None = None,
+    initial_raw_output: bytes | None = None,
+    initial_decision: FluencyDecisionV0 | None = None,
+    initial_state: FluencyStateV0 | None = None,
+    correction_terminal_bytes: bytes | None = None,
+    correction_trigger_bytes: bytes | None = None,
+    correction_adjudication_bytes: bytes | None = None,
+    correction_accuracy_job: EditorialJobV0 | None = None,
+    correction_accuracy_packet: EditorialPacketV0 | None = None,
+    correction_accuracy_policy: EditorialPolicyV0 | None = None,
+    correction_accuracy_parent_candidate: EditorialCandidateSetV0 | None = None,
+    correction_accuracy_receipt: EditorialSubmissionReceiptV0 | None = None,
+    correction_accuracy_raw_output: bytes | None = None,
+    correction_accuracy_terminal_artifacts: tuple[tuple[str, bytes], ...] | None = None,
+    correction_recheck_projection: FluencyTargetProjectionV0 | None = None,
+    correction_recheck_budget: ProviderBudgetV0 | None = None,
+    correction_recheck_plan: FluencyReviewPlanV0 | None = None,
+    correction_recheck_job: FluencyReviewJobV0 | None = None,
+    correction_recheck_packet: FluencyReviewPacketV0 | None = None,
+    correction_recheck_receipt_bytes: bytes | None = None,
+    correction_recheck_raw_output: bytes | None = None,
+    correction_recheck_decision: FluencyDecisionV0 | None = None,
+    correction_recheck_state: FluencyStateV0 | None = None,
+) -> tuple[ContentValidationJobV0, ContentValidationPacketV0, tuple[tuple[str, bytes], ...]]:
+    return _build_fluency_content_validation_job_v0(
         context,
         resolved,
         scope,
@@ -473,18 +580,140 @@ def build_fluency_content_validation_job_v0(
         scope_bytes=scope_bytes,
         scope_lock_bytes=scope_lock_bytes,
         segments_bytes=segments_bytes,
+        prepared_authority=None,
         candidate_evidence=candidate_evidence,
         editorial_job=editorial_job,
         editorial_packet=editorial_packet,
         editorial_policy=editorial_policy,
-        supplemental_authority=((_PROJECTION_PATH, projection_bytes),),
+        provenance_kind=provenance_kind,
+        initial_projection=initial_projection,
+        initial_budget=initial_budget,
+        initial_plan=initial_plan,
+        initial_job=initial_job,
+        initial_packet=initial_packet,
+        initial_receipt_bytes=initial_receipt_bytes,
+        initial_raw_output=initial_raw_output,
+        initial_decision=initial_decision,
+        initial_state=initial_state,
+        correction_terminal_bytes=correction_terminal_bytes,
+        correction_trigger_bytes=correction_trigger_bytes,
+        correction_adjudication_bytes=correction_adjudication_bytes,
+        correction_accuracy_job=correction_accuracy_job,
+        correction_accuracy_packet=correction_accuracy_packet,
+        correction_accuracy_policy=correction_accuracy_policy,
+        correction_accuracy_parent_candidate=correction_accuracy_parent_candidate,
+        correction_accuracy_receipt=correction_accuracy_receipt,
+        correction_accuracy_raw_output=correction_accuracy_raw_output,
+        correction_accuracy_terminal_artifacts=correction_accuracy_terminal_artifacts,
+        correction_recheck_projection=correction_recheck_projection,
+        correction_recheck_budget=correction_recheck_budget,
+        correction_recheck_plan=correction_recheck_plan,
+        correction_recheck_job=correction_recheck_job,
+        correction_recheck_packet=correction_recheck_packet,
+        correction_recheck_receipt_bytes=correction_recheck_receipt_bytes,
+        correction_recheck_raw_output=correction_recheck_raw_output,
+        correction_recheck_decision=correction_recheck_decision,
+        correction_recheck_state=correction_recheck_state,
     )
-    supplemental = tuple((path, payload) for path, payload in authority if path == _PROJECTION_PATH)
-    projection = parse_canonical_json(projection_bytes)
-    if (
-        supplemental != ((_PROJECTION_PATH, projection_bytes),)
-        or job.candidate_sha256 != projection["candidate_sha256"]
-        or job.candidate_authority_sha256 != projection["candidate_authority_sha256"]
-    ):
-        raise ContractViolation(ErrorCode.BINDING_MISMATCH, "Fluency validation job does not bind normalized authority")
-    return job, packet, authority
+
+
+def build_fluency_content_validation_job_prepared_v0(
+    context: ProjectContextV0,
+    resolved: ResolvedConfigV0,
+    authority: PreparedSourceAuthorityV0,
+    scope: FrozenScopeV0,
+    translation_job: TranslationJobV0,
+    translation_packet: TranslationPacketV0,
+    translation_decision_bytes: bytes,
+    translation_state_bytes: bytes,
+    target_set: TranslationTargetSetV0,
+    candidate: EditorialCandidateSetV0,
+    validator: ContentValidatorV0,
+    *,
+    scope_bytes: bytes,
+    scope_lock_bytes: bytes,
+    candidate_evidence: tuple[tuple[str, bytes], ...],
+    editorial_job: EditorialJobV0 | None = None,
+    editorial_packet: EditorialPacketV0 | None = None,
+    editorial_policy: EditorialPolicyV0 | None = None,
+    provenance_kind: Literal["INITIAL_STATE", "CORRECTION_TERMINAL"],
+    initial_projection: FluencyTargetProjectionV0 | None = None,
+    initial_budget: ProviderBudgetV0 | None = None,
+    initial_plan: FluencyReviewPlanV0 | None = None,
+    initial_job: FluencyReviewJobV0 | None = None,
+    initial_packet: FluencyReviewPacketV0 | None = None,
+    initial_receipt_bytes: bytes | None = None,
+    initial_raw_output: bytes | None = None,
+    initial_decision: FluencyDecisionV0 | None = None,
+    initial_state: FluencyStateV0 | None = None,
+    correction_terminal_bytes: bytes | None = None,
+    correction_trigger_bytes: bytes | None = None,
+    correction_adjudication_bytes: bytes | None = None,
+    correction_accuracy_job: EditorialJobV0 | None = None,
+    correction_accuracy_packet: EditorialPacketV0 | None = None,
+    correction_accuracy_policy: EditorialPolicyV0 | None = None,
+    correction_accuracy_parent_candidate: EditorialCandidateSetV0 | None = None,
+    correction_accuracy_receipt: EditorialSubmissionReceiptV0 | None = None,
+    correction_accuracy_raw_output: bytes | None = None,
+    correction_accuracy_terminal_artifacts: tuple[tuple[str, bytes], ...] | None = None,
+    correction_recheck_projection: FluencyTargetProjectionV0 | None = None,
+    correction_recheck_budget: ProviderBudgetV0 | None = None,
+    correction_recheck_plan: FluencyReviewPlanV0 | None = None,
+    correction_recheck_job: FluencyReviewJobV0 | None = None,
+    correction_recheck_packet: FluencyReviewPacketV0 | None = None,
+    correction_recheck_receipt_bytes: bytes | None = None,
+    correction_recheck_raw_output: bytes | None = None,
+    correction_recheck_decision: FluencyDecisionV0 | None = None,
+    correction_recheck_state: FluencyStateV0 | None = None,
+) -> tuple[ContentValidationJobV0, ContentValidationPacketV0, tuple[tuple[str, bytes], ...]]:
+    return _build_fluency_content_validation_job_v0(
+        context,
+        resolved,
+        scope,
+        translation_job,
+        translation_packet,
+        translation_decision_bytes,
+        translation_state_bytes,
+        target_set,
+        candidate,
+        validator,
+        source_lock_bytes=None,
+        reconciliation_bytes=None,
+        scope_bytes=scope_bytes,
+        scope_lock_bytes=scope_lock_bytes,
+        segments_bytes=None,
+        prepared_authority=authority,
+        candidate_evidence=candidate_evidence,
+        editorial_job=editorial_job,
+        editorial_packet=editorial_packet,
+        editorial_policy=editorial_policy,
+        provenance_kind=provenance_kind,
+        initial_projection=initial_projection,
+        initial_budget=initial_budget,
+        initial_plan=initial_plan,
+        initial_job=initial_job,
+        initial_packet=initial_packet,
+        initial_receipt_bytes=initial_receipt_bytes,
+        initial_raw_output=initial_raw_output,
+        initial_decision=initial_decision,
+        initial_state=initial_state,
+        correction_terminal_bytes=correction_terminal_bytes,
+        correction_trigger_bytes=correction_trigger_bytes,
+        correction_adjudication_bytes=correction_adjudication_bytes,
+        correction_accuracy_job=correction_accuracy_job,
+        correction_accuracy_packet=correction_accuracy_packet,
+        correction_accuracy_policy=correction_accuracy_policy,
+        correction_accuracy_parent_candidate=correction_accuracy_parent_candidate,
+        correction_accuracy_receipt=correction_accuracy_receipt,
+        correction_accuracy_raw_output=correction_accuracy_raw_output,
+        correction_accuracy_terminal_artifacts=correction_accuracy_terminal_artifacts,
+        correction_recheck_projection=correction_recheck_projection,
+        correction_recheck_budget=correction_recheck_budget,
+        correction_recheck_plan=correction_recheck_plan,
+        correction_recheck_job=correction_recheck_job,
+        correction_recheck_packet=correction_recheck_packet,
+        correction_recheck_receipt_bytes=correction_recheck_receipt_bytes,
+        correction_recheck_raw_output=correction_recheck_raw_output,
+        correction_recheck_decision=correction_recheck_decision,
+        correction_recheck_state=correction_recheck_state,
+    )

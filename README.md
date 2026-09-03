@@ -18,8 +18,10 @@ locpipe-demo
 ```
 
 Replace `<version>` with the exact fresh wheel filename produced from this
-checkout. This checkout declares package identity `0.2.0b4` and reserves
-`v0.2.0-beta.4` as its future annotated-tag contract. The `0.2.0b3`
+checkout. This checkout declares package identity `0.2.0b5` and reserves
+`v0.2.0-beta.5` as its future annotated-tag contract. The `0.2.0b4`
+prerelease remains immutable and introduced the process-local prepared source,
+translation and base content-validation facades. The `0.2.0b3`
 prerelease remains immutable and contains parsed-source authority rebinding but
 predates the prepared source facade. The `0.2.0b2` prerelease remains immutable
 and contains the public pure translation-terminal reconstruction facade, while
@@ -62,6 +64,12 @@ parity. Warm work is bounded by the selected scope and its incident dependencies
 It is a trusted-process contract: ordinary unsupported construction, copying,
 pickling, cross-process use and top-level substitution fail closed, while
 deliberate same-process mutation through private mechanisms is outside scope.
+
+The additive prepared fluency content-validation facade preserves the exact
+normalized fluency authority for both initial verification and bounded
+correction/recheck paths while reusing the prepared source revision index and
+known source hashes. The canonical fluency entrypoint and wire bytes remain
+unchanged.
 
 Target-only fluency review is additive. Every requested target ID receives an
 explicit outcome, findings cannot replace target bytes, correction is performed

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
+from collections.abc import Iterator, Mapping
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -12,7 +15,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from locpipe.content.v0 import frozen_scope_artifacts_v0, reconcile_sources_v0  # noqa: E402
+from locpipe.content.v0 import (  # noqa: E402
+    PreparedSourceAuthorityV0,
+    frozen_scope_artifacts_v0,
+    prepare_accepted_source_authority_v0,
+    reconcile_sources_v0,
+)
+from locpipe.content.v0 import _prepared as prepared_module  # noqa: E402
 from locpipe.contracts.v0 import (  # noqa: E402
     Capability,
     ContractViolation,
@@ -32,10 +41,12 @@ from locpipe.fluency.v0 import (  # noqa: E402
     accept_fluency_submission_v0,
     bind_fluency_correction_terminal_v0,
     bind_fluency_submission_receipt_v0,
+    build_fluency_content_validation_job_prepared_v0,
     build_fluency_content_validation_job_v0,
     build_fluency_recheck_job_v0,
     build_fluency_review_job_v0,
 )
+from locpipe.fluency.v0 import _bridge as bridge_module  # noqa: E402
 from locpipe.translation.v0 import ProviderBudgetV0  # noqa: E402
 from locpipe.validation.v0 import (  # noqa: E402
     build_validation_editorial_rework_v0,
@@ -43,6 +54,7 @@ from locpipe.validation.v0 import (  # noqa: E402
     validation_editorial_trigger_path_v0,
     validation_job_root_v0,
 )
+from locpipe.validation.v0 import _packet as validation_packet_module  # noqa: E402
 from tests import test_content_validation_v0 as content_tests  # noqa: E402
 from tests import test_fluency_correction_v0 as correction_tests  # noqa: E402
 from tests.conformance.adapter_v0.flat_adapter import SyntheticFlatAdapterV0  # noqa: E402
@@ -64,6 +76,26 @@ from tests.test_translation_packet_v0 import FIXTURES, build_fixture  # noqa: E4
 
 
 PROJECTION_PATH = "fluency/validation-authority.json"
+
+
+class _LookupOnlyMapping(Mapping):
+    def __init__(self, source: Mapping):
+        self.source = source
+        self.lookups = 0
+
+    def __getitem__(self, key):
+        self.lookups += 1
+        return self.source[key]
+
+    def get(self, key, default=None):
+        self.lookups += 1
+        return self.source.get(key, default)
+
+    def __iter__(self) -> Iterator:
+        raise AssertionError("warm prepared fluency validation iterated a full index")
+
+    def __len__(self) -> int:
+        raise AssertionError("warm prepared fluency validation measured a full index")
 
 
 def _combined_layers(*, configured_editor=True, locales=("pl", "uk")):
@@ -133,6 +165,63 @@ def _validation_call(
         scope_bytes=authority["scope/scope.json"],
         scope_lock_bytes=authority["scope/scope_lock.json"],
         segments_bytes=authority["corpus/segments.jsonl"],
+        candidate_evidence=candidate_evidence or fixture["candidate_evidence"],
+        editorial_job=editorial_job or fixture["editorial_job"],
+        editorial_packet=editorial_packet or fixture["editorial_packet"],
+        editorial_policy=editorial_policy or fixture["editorial_policy"],
+        **provenance,
+    )
+
+
+def _prepared_authority(fixture):
+    temporary = tempfile.TemporaryDirectory()
+    root = Path(temporary.name)
+    adapter = fixture.get("adapter") or SyntheticFlatAdapterV0()
+    name = "structured" if isinstance(adapter, SyntheticStructuredAdapterV0) else "flat"
+    golden = FIXTURES / name / "golden"
+    for filename in ("source_snapshot.json", "segments.jsonl", "relations.jsonl"):
+        source = golden / filename
+        if source.is_file():
+            (root / filename).write_bytes(source.read_bytes())
+    source_authority = dict(fixture["authority"])
+    (root / "source_lock.json").write_bytes(source_authority["source/source_lock.json"])
+    authority = prepare_accepted_source_authority_v0(
+        root,
+        snapshot_path="source_snapshot.json",
+        segments_path="segments.jsonl",
+        relations_path="relations.jsonl" if (root / "relations.jsonl").is_file() else None,
+        source_lock_path="source_lock.json",
+        descriptor=adapter.descriptor,
+        expected_config_snapshot_sha256=fixture["resolved"].config_snapshot_sha256,
+    )
+    return temporary, authority
+
+
+def _prepared_validation_call(
+    fixture,
+    authority,
+    candidate=None,
+    candidate_evidence=None,
+    editorial_job=None,
+    editorial_packet=None,
+    editorial_policy=None,
+    **provenance,
+):
+    source_authority = dict(fixture["authority"])
+    return build_fluency_content_validation_job_prepared_v0(
+        fixture["context"],
+        fixture["resolved"],
+        authority,
+        fixture["scope"],
+        fixture["translation_job"],
+        fixture["translation_packet"],
+        fixture["translation_decision_bytes"],
+        fixture["translation_state_bytes"],
+        fixture["translation_target_set"],
+        candidate or fixture["candidate"],
+        fixture["validator"],
+        scope_bytes=source_authority["scope/scope.json"],
+        scope_lock_bytes=source_authority["scope/scope_lock.json"],
         candidate_evidence=candidate_evidence or fixture["candidate_evidence"],
         editorial_job=editorial_job or fixture["editorial_job"],
         editorial_packet=editorial_packet or fixture["editorial_packet"],
@@ -426,6 +515,139 @@ def _validation_origin_corrected_candidate(fixture):
 
 
 class FluencyValidationBridgeV0Tests(unittest.TestCase):
+    def assertSameViolation(self, canonical, prepared) -> None:
+        failures = []
+        for operation in (canonical, prepared):
+            with self.assertRaises(ContractViolation) as caught:
+                operation()
+            failures.append((caught.exception.record.code, caught.exception.record.detail))
+        self.assertEqual(failures[0], failures[1])
+
+    def test_prepared_initial_state_is_byte_exact_with_canonical(self) -> None:
+        fixture = _validation_fixture()
+        temporary, authority = _prepared_authority(fixture)
+        self.addCleanup(temporary.cleanup)
+        provenance = _initial_provenance(fixture)
+        canonical = _validation_call(fixture, **provenance)
+        prepared = _prepared_validation_call(fixture, authority, **provenance)
+        self.assertEqual(canonical, prepared)
+        self.assertEqual(
+            ((PROJECTION_PATH, dict(canonical[2])[PROJECTION_PATH]),),
+            tuple(row for row in prepared[2] if row[0] == PROJECTION_PATH),
+        )
+
+    def test_prepared_correction_paths_are_byte_exact_with_canonical(self) -> None:
+        cases = (
+            (("KEEP", KEEP_REASON), None),
+            (("CORRECT", CORRECT_REASON), "NO_FINDINGS"),
+        )
+        for action, recheck_outcome in cases:
+            with self.subTest(action=action, recheck_outcome=recheck_outcome):
+                source = _accuracy_authority_with_validation((action, action))
+                fixture = _correction_validation_fixture(source)
+                temporary, authority = _prepared_authority(fixture)
+                try:
+                    provenance = _correction_provenance(source, recheck_outcome=recheck_outcome)
+                    self.assertEqual(
+                        _validation_call(fixture, **provenance),
+                        _prepared_validation_call(fixture, authority, **provenance),
+                    )
+                finally:
+                    temporary.cleanup()
+
+    def test_prepared_and_canonical_fluency_errors_are_exact(self) -> None:
+        fixture = _validation_fixture()
+        temporary, authority = _prepared_authority(fixture)
+        self.addCleanup(temporary.cleanup)
+        initial = _initial_provenance(fixture)
+        drift_cases = []
+        unknown = dict(initial)
+        unknown["provenance_kind"] = "UNKNOWN"
+        drift_cases.append(("unknown", unknown))
+        incomplete = dict(initial)
+        incomplete["initial_state"] = None
+        drift_cases.append(("incomplete", incomplete))
+        mixed = dict(initial)
+        mixed["correction_terminal_bytes"] = b"{}"
+        drift_cases.append(("mixed", mixed))
+        receipt = dict(initial)
+        receipt["initial_receipt_bytes"] += b" "
+        drift_cases.append(("receipt", receipt))
+        state = dict(initial)
+        state["initial_state"] = replace(initial["initial_state"], candidate_sha256="1" * 64)
+        drift_cases.append(("state", state))
+        for label, provenance in drift_cases:
+            with self.subTest(label=label):
+                self.assertSameViolation(
+                    lambda provenance=provenance: _validation_call(fixture, **provenance),
+                    lambda provenance=provenance: _prepared_validation_call(
+                        fixture, authority, **provenance,
+                    ),
+                )
+
+    def test_prepared_fluency_validation_reuses_revision_index(self) -> None:
+        fixture = _validation_fixture()
+        temporary, authority = _prepared_authority(fixture)
+        self.addCleanup(temporary.cleanup)
+        prepared = prepared_module._prepared_source_parts_v0(authority)
+        revisions = _LookupOnlyMapping(prepared._revision_index)
+        names = (
+            "corpus", "reconciliation", "source_lock_bytes", "reconciliation_bytes",
+            "segments_bytes", "segments", "relations", "_segment_index", "_revision_index",
+            "_relations_by_branch", "_relations_by_logical", "_segments_by_logical",
+            "_source_lock_sha256", "_reconciliation_sha256", "_segments_sha256",
+            "_reconciliation_digest",
+        )
+        values = {name: getattr(prepared, name) for name in names}
+        values["_revision_index"] = revisions
+        access = SimpleNamespace(**values)
+        original_raw_sha256 = validation_packet_module.raw_sha256
+
+        def reject_full_authority_rehash(payload):
+            if payload is prepared.segments_bytes or payload is prepared.reconciliation_bytes:
+                raise AssertionError("prepared fluency validation rehashed full source authority")
+            return original_raw_sha256(payload)
+
+        with (
+            patch.object(bridge_module, "_prepared_source_parts_v0", return_value=access) as bound,
+            patch.object(
+                validation_packet_module,
+                "parse_canonical_jsonl",
+                side_effect=AssertionError("prepared fluency validation parsed source JSONL"),
+            ),
+            patch.object(
+                validation_packet_module,
+                "raw_sha256",
+                side_effect=reject_full_authority_rehash,
+            ),
+        ):
+            actual = _prepared_validation_call(
+                fixture,
+                authority,
+                **_initial_provenance(fixture),
+            )
+        self.assertEqual(_validation_call(fixture, **_initial_provenance(fixture)), actual)
+        bound.assert_called_once_with(authority)
+        self.assertEqual(len(fixture["translation_packet"].rows), revisions.lookups)
+
+    def test_prepared_fluency_validation_rejects_unbound_authority(self) -> None:
+        fixture = _validation_fixture()
+        provenance = _initial_provenance(fixture)
+        cases = (
+            (object(), "MALFORMED_ARTIFACT", "Prepared source authority is invalid"),
+            (
+                object.__new__(PreparedSourceAuthorityV0),
+                "BINDING_MISMATCH",
+                "Prepared source authority is not bound in this process",
+            ),
+        )
+        for authority, code, detail in cases:
+            with self.subTest(code=code):
+                with self.assertRaises(ContractViolation) as caught:
+                    _prepared_validation_call(fixture, authority, **provenance)
+                self.assertEqual(code, caught.exception.record.code.value)
+                self.assertEqual(detail, caught.exception.record.detail)
+
     def test_initial_state_is_deterministic_and_exactly_supplemental(self) -> None:
         fixture = _validation_fixture()
         provenance = _initial_provenance(fixture)
