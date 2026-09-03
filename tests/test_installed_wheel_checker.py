@@ -18,16 +18,16 @@ from tools.check_installed_wheel import (
 class InstalledWheelCheckerTests(unittest.TestCase):
     def test_install_command_uses_separate_runtime_wheelhouse(self) -> None:
         self.assertEqual(
-            _install_command(Path("python"), Path("dist/locpipe-0.2.0b5-py3-none-any.whl"), Path("wheelhouse")),
+            _install_command(Path("python"), Path("dist/locpipe-0.2.0b6-py3-none-any.whl"), Path("wheelhouse")),
             (
                 "python", "-m", "pip", "install", "--disable-pip-version-check",
                 "--no-index", "--find-links", "wheelhouse",
-                str(Path("dist/locpipe-0.2.0b5-py3-none-any.whl")),
+                str(Path("dist/locpipe-0.2.0b6-py3-none-any.whl")),
             ),
         )
         self.assertEqual(
-            _expected_wheel_version(Path("locpipe-0.2.0b5-py3-none-any.whl")),
-            "0.2.0b5",
+            _expected_wheel_version(Path("locpipe-0.2.0b6-py3-none-any.whl")),
+            "0.2.0b6",
         )
         with self.assertRaises(SystemExit):
             _expected_wheel_version(Path("another-package.whl"))
@@ -38,12 +38,12 @@ class InstalledWheelCheckerTests(unittest.TestCase):
             "locpipe_origin": str(venv / "Lib/site-packages/locpipe/__init__.py"),
             "rfc8785_origin": str(venv / "Lib/site-packages/rfc8785/__init__.py"),
             "requires": ["rfc8785==0.1.4"],
-            "version": "0.2.0b5",
+            "version": "0.2.0b6",
         }
-        _validate_installed_authority(installed, venv_root=venv, expected_version="0.2.0b5")
+        _validate_installed_authority(installed, venv_root=venv, expected_version="0.2.0b6")
         installed["rfc8785_origin"] = str(Path("outside/rfc8785/__init__.py").resolve())
         with self.assertRaisesRegex(SystemExit, "escaped the temporary environment"):
-            _validate_installed_authority(installed, venv_root=venv, expected_version="0.2.0b5")
+            _validate_installed_authority(installed, venv_root=venv, expected_version="0.2.0b6")
 
     def test_successful_captured_demo_behavior_is_unchanged(self) -> None:
         expected = subprocess.CompletedProcess(
@@ -90,7 +90,9 @@ class InstalledWheelCheckerTests(unittest.TestCase):
             args=("python", "-I", "-c", _PREPARED_PROBE),
             returncode=0,
             stdout=(
-                '{"fluency_validation_api":"PASS","prepared_api":"PASS",'
+                '{"cache_api":"PASS","fluency_validation_api":"PASS","prepared_api":"PASS",'
+                '"probes":{"binder_forgery":"PASS","cache_corruption":"PASS",'
+                '"foreign_provenance":"PASS","partial_publication":"PASS"},'
                 '"rows":6,"validation_api":"PASS"}\n'
             ),
             stderr="",
@@ -112,6 +114,10 @@ class InstalledWheelCheckerTests(unittest.TestCase):
             "build_translation_job_prepared_v0",
             "build_content_validation_job_prepared_v0",
             "build_fluency_content_validation_job_prepared_v0",
+            "PreparedSourceCacheReceiptV0",
+            "build_prepared_source_cache_v0",
+            "freeze_scope_prepared_v0",
+            "load_prepared_source_authority_v0",
         ):
             self.assertIn(public_name, _PREPARED_PROBE)
         self.assertEqual(1, _PREPARED_PROBE.count("build_content_validation_job_prepared_v0("))
@@ -121,6 +127,14 @@ class InstalledWheelCheckerTests(unittest.TestCase):
         )
         self.assertIn('"validation_api": "PASS"', _PREPARED_PROBE)
         self.assertIn('"fluency_validation_api": "PASS"', _PREPARED_PROBE)
+        self.assertIn('"cache_api": "PASS"', _PREPARED_PROBE)
+        for probe_name in (
+            "binder_forgery",
+            "cache_corruption",
+            "foreign_provenance",
+            "partial_publication",
+        ):
+            self.assertIn(probe_name, _PREPARED_PROBE)
 
     def test_prepared_probe_failure_has_bounded_diagnostics(self) -> None:
         failure = subprocess.CalledProcessError(

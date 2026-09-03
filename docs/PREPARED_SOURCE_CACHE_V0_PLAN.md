@@ -408,36 +408,45 @@ Required invented-fixture evidence:
 
 The Orchestrator performs one findings-first code review after the complete checkpoint. Engineering receives one consolidated correction set. Unresolved P0/P1 returns to architecture review rather than a chain of micro-diagnostics.
 
-## 13. M3C clean-wheel and full-corpus acceptance
+## 13. M3B clean-wheel prerelease acceptance
 
-Only after M3B review is green:
+After M3B code review is green, prepare one `locpipe 0.2.0b6` prerelease
+candidate with future tag contract `v0.2.0-beta.6`. Build reproducible
+wheel/sdist evidence in clean CPython 3.11.9, verify the four public cache and
+prepared-scope symbols, build and load one small invented cache after removing
+its original invented source files, and prove exact prepared-scope and existing
+translation/validation parity. Corruption, foreign-receipt,
+partial-publication and binder-copy probes run only against invented or copied
+cache roots and must fail closed.
 
-1. Prepare one immutable prerelease candidate, proposed `locpipe 0.2.0b6` and `v0.2.0-beta.6`.
-2. Build reproducible wheel/sdist evidence and verify all four public symbols in clean CPython 3.11.9 environments.
-3. In one approved private campaign, cold-prepare the exact corpus and publish one cache.
-4. Start two independent fresh processes and warm-load that cache once each.
-5. Deny access to original `segments.jsonl` and `relations.jsonl` during both warm processes.
-6. Compare canonical-cold and cache-warm scope, translation, fluency-validation, and content-validation artifacts byte-for-byte for representative and worst measured scopes.
-7. Benchmark full M4-like sessions: warm load once, one session config authority, all representative scope freezes/materializations, then orderly release.
-8. Record cold build time/RSS, cache bytes and duplication ratio, shard inventory, warm load time/RSS/tracemalloc, and per-scope/per-batch time.
-9. Run corruption, foreign-provenance, and partial-publication probes only against synthetic/copied cache state, never the accepted private cache.
+This package checkpoint contains no full-corpus runner, campaign controller,
+project adapter, performance harness or source-specific authority. Package
+identity, commit or local package evidence does not authorize publication.
 
-The private cache and external receipt remain outside Git under an approved ignored root. No source-bearing shard enters public evidence.
+## 14. Release, downstream acceptance, and close
 
-The candidate is rejected if its API is incomplete for M4, any warm original-corpus read occurs, parity/binder/publication fails, per-batch total-corpus work remains, or approved performance budgets fail.
+The required order is:
 
-## 14. Release, migration, and close
+1. Complete Orchestrator review of the generic b6 checkpoint.
+2. Commit the reviewed bytes and reproduce wheel, sdist, release metadata and
+   clean installed-wheel evidence from that exact commit.
+3. Obtain explicit user authorization before publishing one immutable b6
+   prerelease, then verify fresh-download hashes.
+4. Separately migrate the downstream repository to the exact published wheel
+   URL, version and SHA without source fallback, and prove installed origins and
+   all four cache/scope symbols.
+5. Implement and review the downstream full-corpus acceptance worker under the
+   declared b6 dependency.
+6. Under separate execution authorization, prove one cold parse, one cache
+   build, two fresh-process warm loads, direct cold/warm artifact byte parity,
+   actual source-open/parser counts, phase-specific durations, external peak
+   RSS and copied-state failure probes.
+7. Run the downstream guarded, boundary and migration gates before recording
+   `M3_COMPLETE / M4_NOT_AUTHORIZED`.
 
-After complete M3C acceptance:
-
-1. Publish exactly one immutable prerelease and verify fresh-download hashes.
-2. Migrate Slice03 to the exact wheel URL/version/SHA without source fallback.
-3. Prove installed origins and all four cache/scope symbols.
-4. Run the guarded active downstream suite plus dependency, prepared translation, prepared fluency validation, private-boundary, migration-baseline, and diff gates.
-5. Update Slice03 `STATUS.md` and the production plan with exact evidence.
-6. Mark `M3_COMPLETE / M4_NOT_AUTHORIZED`.
-
-M4 does not start automatically. No second release fills avoidable API omissions discovered after publication.
+Full-corpus inputs, cache and external receipts remain outside Git under an
+approved ignored root. M4 does not start automatically, and no second release
+fills avoidable API omissions discovered after publication.
 
 ## 15. Stop rules
 

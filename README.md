@@ -18,10 +18,12 @@ locpipe-demo
 ```
 
 Replace `<version>` with the exact fresh wheel filename produced from this
-checkout. This checkout declares package identity `0.2.0b5` and reserves
-`v0.2.0-beta.5` as its future annotated-tag contract. The `0.2.0b4`
-prerelease remains immutable and introduced the process-local prepared source,
-translation and base content-validation facades. The `0.2.0b3`
+checkout. This checkout declares package identity `0.2.0b6` and reserves
+`v0.2.0-beta.6` as its future annotated-tag contract. The `0.2.0b5`
+prerelease remains immutable and introduced the prepared fluency
+content-validation facade. The `0.2.0b4` prerelease remains immutable and
+introduced the process-local prepared source, translation and base
+content-validation facades. The `0.2.0b3`
 prerelease remains immutable and contains parsed-source authority rebinding but
 predates the prepared source facade. The `0.2.0b2` prerelease remains immutable
 and contains the public pure translation-terminal reconstruction facade, while
@@ -70,6 +72,13 @@ normalized fluency authority for both initial verification and bounded
 correction/recheck paths while reusing the prepared source revision index and
 known source hashes. The canonical fluency entrypoint and wire bytes remain
 unchanged.
+
+The additive prepared-source cache facade persists deterministic immutable
+shards plus an external receipt, reloads them in a fresh process with a new
+process-local binder, and freezes scope through prepared indexes. Unknown or
+foreign authority, corrupt or incomplete inventory, unsupported construction
+and partial publication fail closed. Cache publication is manifest-last and
+never replaces an accepted cache root.
 
 Target-only fluency review is additive. Every requested target ID receives an
 explicit outcome, findings cannot replace target bytes, correction is performed

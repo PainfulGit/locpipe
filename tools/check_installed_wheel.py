@@ -9,6 +9,7 @@ from pathlib import Path
 
 _PREPARED_PROBE = r"""
 import copy
+from dataclasses import replace
 import json
 import shutil
 import tempfile
@@ -20,13 +21,17 @@ from locpipe._demo_support.test_content_validation_v0 import validation_fixture
 from locpipe._demo_support.test_translation_packet_v0 import FIXTURES, build_fixture
 from locpipe.content.v0 import (
     PreparedSourceAuthorityV0,
+    PreparedSourceCacheReceiptV0,
     PreparedSourceRelationV0,
     PreparedSourceSegmentV0,
+    build_prepared_source_cache_v0,
+    freeze_scope_prepared_v0,
     frozen_scope_artifacts_v0,
+    load_prepared_source_authority_v0,
     prepare_accepted_source_authority_v0,
     rebind_prepared_source_authority_v0,
 )
-from locpipe.contracts.v0 import WorkflowProfile, canonical_json_bytes
+from locpipe.contracts.v0 import ContractViolation, WorkflowProfile, canonical_json_bytes
 from locpipe.kernel.v0.context import ProjectContextV0
 from locpipe.kernel.v0.transactions import NamespaceV0
 from locpipe.fluency.v0 import build_fluency_content_validation_job_prepared_v0
@@ -35,8 +40,12 @@ from locpipe.validation.v0 import build_content_validation_job_prepared_v0
 
 public_symbols = (
     PreparedSourceAuthorityV0,
+    PreparedSourceCacheReceiptV0,
     PreparedSourceRelationV0,
     PreparedSourceSegmentV0,
+    build_prepared_source_cache_v0,
+    freeze_scope_prepared_v0,
+    load_prepared_source_authority_v0,
     prepare_accepted_source_authority_v0,
     rebind_prepared_source_authority_v0,
     build_translation_job_prepared_v0,
@@ -63,6 +72,53 @@ with tempfile.TemporaryDirectory() as directory:
         descriptor=adapter.descriptor,
         expected_config_snapshot_sha256=resolved.config_snapshot_sha256,
     )
+    cache_parent = root / "cache"
+    cache_parent.mkdir()
+    receipt = build_prepared_source_cache_v0(
+        authority,
+        cache_parent,
+        producer_distribution_sha256="d" * 64,
+    )
+    receipt = PreparedSourceCacheReceiptV0.from_bytes(receipt.canonical_bytes())
+    for name in ("source_snapshot.json", "segments.jsonl", "relations.jsonl", "source_lock.json"):
+        (root / name).unlink()
+    cache_root = cache_parent / receipt.cache_id
+    authority = load_prepared_source_authority_v0(cache_root, expected=receipt)
+    prepared_scope = freeze_scope_prepared_v0(
+        authority,
+        scope.entries,
+        target_locales=scope.target_locales,
+        config_snapshot_sha256=resolved.config_snapshot_sha256,
+    )
+    if prepared_scope != scope or frozen_scope_artifacts_v0(prepared_scope) != frozen_scope_artifacts_v0(scope):
+        raise SystemExit("prepared cache scope differs from canonical scope")
+
+    probe_results = {}
+    corrupt_root = root / "probe-corrupt"
+    shutil.copytree(cache_root, corrupt_root)
+    (corrupt_root / "manifest.json").write_bytes(b"{}")
+    try:
+        load_prepared_source_authority_v0(corrupt_root, expected=receipt)
+    except ContractViolation:
+        probe_results["cache_corruption"] = "PASS"
+    else:
+        raise SystemExit("corrupt prepared cache did not fail closed")
+    foreign_receipt = replace(receipt, producer_distribution_sha256="e" * 64)
+    try:
+        load_prepared_source_authority_v0(cache_root, expected=foreign_receipt)
+    except ContractViolation:
+        probe_results["foreign_provenance"] = "PASS"
+    else:
+        raise SystemExit("foreign prepared cache receipt did not fail closed")
+    partial_root = root / "probe-partial"
+    shutil.copytree(cache_root, partial_root)
+    next(path for path in partial_root.rglob("*.jsonl")).unlink()
+    try:
+        load_prepared_source_authority_v0(partial_root, expected=receipt)
+    except ContractViolation:
+        probe_results["partial_publication"] = "PASS"
+    else:
+        raise SystemExit("partial prepared cache did not fail closed")
     context = ProjectContextV0(
         NamespaceV0("workspace", "fixture", "release"),
         WorkflowProfile.CONTENT_ONLY,
@@ -87,7 +143,7 @@ with tempfile.TemporaryDirectory() as directory:
     try:
         copy.copy(authority)
     except TypeError:
-        pass
+        probe_results["binder_forgery"] = "PASS"
     else:
         raise SystemExit("prepared authority copy did not fail closed")
 
@@ -199,10 +255,12 @@ with tempfile.TemporaryDirectory() as directory:
         raise SystemExit("prepared fluency validation differs from canonical fluency validation")
 
 print(json.dumps({
+    "cache_api": "PASS",
     "prepared_api": "PASS",
     "rows": len(authority.segments),
     "validation_api": "PASS",
     "fluency_validation_api": "PASS",
+    "probes": probe_results,
 }, sort_keys=True))
 """
 
@@ -316,12 +374,21 @@ def main() -> int:
         prepared_payload = json.loads(prepared.stdout.strip().splitlines()[-1])
         if (
             prepared_payload.get("prepared_api") != "PASS"
+            or prepared_payload.get("cache_api") != "PASS"
             or prepared_payload.get("validation_api") != "PASS"
             or prepared_payload.get("fluency_validation_api") != "PASS"
+            or prepared_payload.get("probes") != {
+                "binder_forgery": "PASS",
+                "cache_corruption": "PASS",
+                "foreign_provenance": "PASS",
+                "partial_publication": "PASS",
+            }
             or prepared_payload.get("rows", 0) < 1
         ):
             raise SystemExit("installed wheel prepared API proof failed")
     print(json.dumps({
+        "cache_api": "PASS",
+        "cache_probes": "PASS",
         "prepared_api": "PASS",
         "fluency_validation_api": "PASS",
         "status": "PASS",

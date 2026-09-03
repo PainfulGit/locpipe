@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0b6
+
+- Add the deterministic immutable `PreparedSourceCacheReceiptV0`,
+  `build_prepared_source_cache_v0` and `load_prepared_source_authority_v0`
+  APIs, plus `freeze_scope_prepared_v0`. Cache load
+  rebuilds a fresh process-local binder and fails closed on foreign authority,
+  corruption, truncation, inventory drift or partial publication.
+- Preserve the frozen `0.1.0-draft.2` wire contract and exact
+  `rfc8785==0.1.4` runtime dependency.
+
+The future annotated-tag contract is `v0.2.0-beta.6`. Assigning this package
+identity does not itself authorize a tag, release asset upload or external
+publication. Existing beta.1 through beta.5 tags and release assets remain
+immutable and are never replaced in place.
+
 ## 0.2.0b5
 
 - Add the public `build_fluency_content_validation_job_prepared_v0`
