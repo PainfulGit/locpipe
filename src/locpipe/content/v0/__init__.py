@@ -1,5 +1,11 @@
 """Experimental generic content lifecycle facade v0."""
 
+from ._cache import (
+    PreparedSourceCacheReceiptV0,
+    build_prepared_source_cache_v0,
+    load_prepared_source_authority_v0,
+)
+
 from ._corpus import (
     LoadedSourceCorpusV0,
     load_accepted_source_corpus_v0,
@@ -43,6 +49,7 @@ from ._scope import (
     SCOPE_LOCK_PATH,
     SCOPE_PATH,
     freeze_scope_v0,
+    freeze_scope_prepared_v0,
     frozen_scope_artifacts_v0,
     validate_frozen_scope_artifacts_v0,
 )
@@ -53,6 +60,7 @@ __all__ = [
     "LineageDirectiveV0",
     "LoadedSourceCorpusV0",
     "PreparedSourceAuthorityV0",
+    "PreparedSourceCacheReceiptV0",
     "PreparedSourceRelationV0",
     "PreparedSourceSegmentV0",
     "ReconciliationEventV0",
@@ -70,8 +78,11 @@ __all__ = [
     "SCOPE_PATH",
     "bind_source_reconciliation_v0",
     "bind_source_snapshot_v0",
+    "build_prepared_source_cache_v0",
+    "freeze_scope_prepared_v0",
     "load_accepted_source_corpus_v0",
     "load_source_corpus_v0",
+    "load_prepared_source_authority_v0",
     "parse_source_lock_v0",
     "prepare_accepted_source_authority_v0",
     "freeze_scope_v0",

@@ -16,6 +16,7 @@ from locpipe.contracts.v0 import (
 
 from ._corpus import LoadedSourceCorpusV0, validate_source_lock_v0
 from ._models import FrozenScopeV0, ScopeEntryV0, ScopeRoleV0
+from ._prepared import PreparedSourceAuthorityV0, _prepared_source_parts_v0
 from ._reconciliation import SourceReconciliationV0
 
 
@@ -167,6 +168,31 @@ def freeze_scope_v0(
         source_lock_sha256=raw_sha256(source_lock_bytes),
         reconciliation_digest=reconciliation.digest,
         access=_canonical_scope_access_v0(corpus),
+    )
+
+
+def freeze_scope_prepared_v0(
+    authority: PreparedSourceAuthorityV0,
+    entries: tuple[ScopeEntryV0, ...],
+    *,
+    target_locales: tuple[str, ...],
+    config_snapshot_sha256: str,
+) -> FrozenScopeV0:
+    prepared = _prepared_source_parts_v0(authority)
+    return _accept_scope_v0(
+        prepared.corpus,
+        prepared.reconciliation,
+        entries,
+        target_locales=target_locales,
+        config_snapshot_sha256=config_snapshot_sha256,
+        source_lock_sha256=prepared._source_lock_sha256,
+        reconciliation_digest=prepared._reconciliation_digest,
+        access=_prepared_scope_access_v0(
+            prepared._segment_index,
+            prepared._relations_by_branch,
+            prepared._relations_by_logical,
+            prepared._segments_by_logical,
+        ),
     )
 
 
